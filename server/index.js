@@ -1,16 +1,12 @@
 import express from 'express';
 import cors from 'cors';
-import { exec } from 'child_process';
-import util from 'util';
+import ldap from 'ldapjs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import fs from 'fs';
-import os from 'os';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const execPromise = util.promisify(exec);
 const app = express();
 const PORT = process.env.PORT || 3001;
 const UPN_SUFFIX = process.env.UPN_SUFFIX || 'corp.example.com';
@@ -19,182 +15,212 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '../dist')));
 
-const escapePS = (str) => {
-  if (!str) return '';
-  return str.replace(/'/g, "''");
-};
+// Derive base DN from UPN suffix: "corp.example.com" -> "DC=corp,DC=example,DC=com"
+const BASE_DN = UPN_SUFFIX.split('.').map(p => `DC=${p}`).join(',');
 
-const runPowerShellScript = async (lines) => {
-    const scriptString = lines.join('\n');
-    const tmpFilePath = path.join(os.tmpdir(), `ps-${Date.now()}-${Math.random().toString(36).substring(2, 9)}.ps1`);
-    fs.writeFileSync(tmpFilePath, scriptString, 'utf8');
-    try {
-        return await execPromise(`powershell.exe -NoProfile -ExecutionPolicy Bypass -File "${tmpFilePath}"`, {maxBuffer: 1024 * 1024 * 50});
-    } finally {
-        try { fs.unlinkSync(tmpFilePath); } catch (e) {}
-    }
-};
+const createClient = (dcServer) =>
+  ldap.createClient({
+    url: `ldaps://${dcServer}:636`,
+    tlsOptions: { rejectUnauthorized: false },
+    timeout: 15000,
+    connectTimeout: 15000,
+  });
 
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'healthy', timestamp: new Date().toISOString() });
-});
+const bind = (client, dn, password) =>
+  new Promise((resolve, reject) =>
+    client.bind(dn, password, err => (err ? reject(err) : resolve())));
+
+const unbind = (client) =>
+  new Promise(resolve => client.unbind(() => resolve()));
+
+// AD requires passwords to be UTF-16LE encoded and wrapped in quotes
+const encodePassword = (password) =>
+  Buffer.from(`"${password}"`, 'utf16le');
+
+app.get('/api/health', (_req, res) =>
+  res.json({ status: 'healthy', timestamp: new Date().toISOString() }));
 
 app.post('/api/connect', async (req, res) => {
   const { dcServer, username, password } = req.body;
-  if (!dcServer || !username || !password) {
+  if (!dcServer || !username || !password)
     return res.status(400).json({ error: 'Missing credentials' });
-  }
 
-  const scriptLines = [
-    `$ErrorActionPreference = 'Stop'`,
-    `try { Import-Module ActiveDirectory -ErrorAction Stop } catch {}`,
-    `try {`,
-    `  $secPass = New-Object System.Security.SecureString`,
-    `  '${escapePS(password)}'.ToCharArray() | ForEach-Object { $secPass.AppendChar($_) }`,
-    `  $cred = New-Object System.Management.Automation.PSCredential ('${escapePS(username)}', $secPass)`,
-    `  $domain = Get-ADDomain -Server '${escapePS(dcServer)}' -Credential $cred`,
-    `  Write-Output 'SUCCESS'`,
-    `} catch {`,
-    `  Write-Error $_.Exception.Message`,
-    `}`
-  ];
-
+  const client = createClient(dcServer);
   try {
-    const { stdout, stderr } = await runPowerShellScript(scriptLines);
-    if (stdout.includes('SUCCESS')) {
-      return res.json({ success: true, message: 'Connected to domain successfully' });
-    } else {
-      return res.status(401).json({ error: stderr || stdout || 'Connection failed' });
-    }
+    await bind(client, username, password);
+    await unbind(client);
+    res.json({ success: true, message: 'Connected to domain successfully' });
   } catch (err) {
-    return res.status(401).json({ error: err.message || 'Connection failed' });
+    client.destroy();
+    res.status(401).json({ error: err.message || 'Connection failed' });
   }
 });
 
 app.post('/api/groups', async (req, res) => {
   const { dcServer, username, password } = req.body;
-  if (!dcServer || !username || !password) return res.status(400).json({ error: 'Missing credentials' });
+  if (!dcServer || !username || !password)
+    return res.status(400).json({ error: 'Missing credentials' });
 
-  const scriptLines = [
-    `$ErrorActionPreference = 'Stop'`,
-    `try { Import-Module ActiveDirectory -ErrorAction Stop } catch {}`,
-    `try {`,
-    `  $secPass = New-Object System.Security.SecureString`,
-    `  '${escapePS(password)}'.ToCharArray() | ForEach-Object { $secPass.AppendChar($_) }`,
-    `  $cred = New-Object System.Management.Automation.PSCredential ('${escapePS(username)}', $secPass)`,
-    `  $groups = Get-ADGroup -Filter * -Server '${escapePS(dcServer)}' -Credential $cred | Sort-Object Name | Select-Object -ExpandProperty Name`,
-    `  @($groups) | ConvertTo-Json -Compress`,
-    `} catch {`,
-    `  Write-Error $_.Exception.Message`,
-    `}`
-  ];
-
+  const client = createClient(dcServer);
   try {
-    const { stdout, stderr } = await runPowerShellScript(scriptLines);
-    const match = stdout.match(/\[.*\]/s);
-    if (match) {
-       return res.json({ success: true, groups: JSON.parse(match[0]) });
-    } else {
-       if (stdout.includes('WriteErrorException')) throw new Error(stdout);
-       return res.json({ success: true, groups: [] });
-    }
+    await bind(client, username, password);
+
+    const groups = await new Promise((resolve, reject) => {
+      const found = [];
+      client.search(BASE_DN, {
+        filter: '(objectClass=group)',
+        scope: 'sub',
+        attributes: ['cn'],
+      }, (err, result) => {
+        if (err) return reject(err);
+        result.on('searchEntry', entry => {
+          const cn = entry.object.cn;
+          if (cn) found.push(Array.isArray(cn) ? cn[0] : cn);
+        });
+        result.on('error', reject);
+        result.on('end', () => resolve(found.sort()));
+      });
+    });
+
+    await unbind(client);
+    res.json({ success: true, groups });
   } catch (err) {
-    return res.status(500).json({ error: err.message || 'Failed to fetch groups' });
+    client.destroy();
+    res.status(500).json({ error: err.message || 'Failed to fetch groups' });
   }
 });
 
 app.post('/api/provision', async (req, res) => {
   const { dcServer, username: adminUser, password: adminPass, users, targetOu } = req.body;
-  
-  if (!users || !Array.isArray(users) || users.length === 0) {
+
+  if (!users || !Array.isArray(users) || users.length === 0)
     return res.status(400).json({ error: 'Missing user details' });
-  }
 
-  const scriptLines = [
-    `$ErrorActionPreference = 'Stop'`,
-    `try { Import-Module ActiveDirectory -ErrorAction Stop } catch {}`,
-    `try {`,
-    `  $secSysPass = New-Object System.Security.SecureString`,
-    `  '${escapePS(adminPass)}'.ToCharArray() | ForEach-Object { $secSysPass.AppendChar($_) }`,
-    `  $sysCred = New-Object System.Management.Automation.PSCredential ('${escapePS(adminUser)}', $secSysPass)`,
-    `  $createdUsersOut = @()`
-  ];
+  const client = createClient(dcServer);
 
-  users.forEach((u, index) => {
-    const un = "u" + index; 
-    scriptLines.push(
-      `  $baseUn_${un} = '${escapePS(u.username)}'`,
-      `  $finalUn_${un} = $baseUn_${un}`,
-      `  $counter_${un} = 1`,
-      `  while ($null -ne (Get-ADUser -Filter "SamAccountName -eq '$finalUn_${un}'" -Server '${escapePS(dcServer)}' -Credential $sysCred -ErrorAction SilentlyContinue)) {`,
-      `      $finalUn_${un} = "$baseUn_${un}$counter_${un}"`,
-      `      $counter_${un}++`,
-      `  }`,
-      `  $secUserPass_${un} = New-Object System.Security.SecureString`,
-      `  '${escapePS(u.password)}'.ToCharArray() | ForEach-Object { $secUserPass_${un}.AppendChar($_) }`,
-      `  $userParams_${un} = @{`,
-      `      Server = '${escapePS(dcServer)}'`,
-      `      Credential = $sysCred`,
-      `      Name = '${escapePS(u.firstName)} ${escapePS(u.lastName)}'`,
-      `      GivenName = '${escapePS(u.firstName)}'`,
-      `      Surname = '${escapePS(u.lastName)}'`,
-      `      SamAccountName = $finalUn_${un}`,
-      `      UserPrincipalName = "$finalUn_${un}@${UPN_SUFFIX}"`,
-      `      AccountPassword = $secUserPass_${un}`,
-      `      Enabled = $true`,
-      `      PasswordNeverExpires = $true`,
-      `      PassThru = $true`,
-      `  }`
-    );
+  try {
+    await bind(client, adminUser, adminPass);
 
-    if (targetOu && targetOu.trim() !== '') {
-        scriptLines.push(`  $userParams_${un}.Add('Path', '${escapePS(targetOu)}')`);
-    }
+    const userExists = (sam) =>
+      new Promise((resolve, reject) => {
+        client.search(BASE_DN, {
+          filter: `(sAMAccountName=${sam})`,
+          scope: 'sub',
+          attributes: ['sAMAccountName'],
+        }, (err, result) => {
+          if (err) return reject(err);
+          let found = false;
+          result.on('searchEntry', () => { found = true; });
+          result.on('error', reject);
+          result.on('end', () => resolve(found));
+        });
+      });
 
-    scriptLines.push(`  $createdUser_${un} = New-ADUser @userParams_${un}`);
-    
-    if (u.groups && u.groups.length > 0) {
-      u.groups.forEach(g => {
-        scriptLines.push(`  Add-ADGroupMember -Identity '${escapePS(g)}' -Members $createdUser_${un}.ObjectGUID -Server '${escapePS(dcServer)}' -Credential $sysCred`);
+    const findGroupDN = (groupName) =>
+      new Promise((resolve, reject) => {
+        client.search(BASE_DN, {
+          filter: `(&(objectClass=group)(cn=${groupName}))`,
+          scope: 'sub',
+          attributes: ['dn'],
+        }, (err, result) => {
+          if (err) return reject(err);
+          let dn = null;
+          result.on('searchEntry', entry => { dn = entry.objectName; });
+          result.on('error', reject);
+          result.on('end', () => resolve(dn));
+        });
+      });
+
+    const createdUsers = [];
+
+    for (const u of users) {
+      // Resolve username conflicts by appending a counter
+      let finalUsername = u.username;
+      let counter = 1;
+      while (await userExists(finalUsername)) {
+        finalUsername = `${u.username}${counter++}`;
+      }
+
+      const userDN = `CN=${u.firstName} ${u.lastName},${targetOu}`;
+
+      // Step 1: Create user in disabled state (can't set password on enabled account without prior password)
+      await new Promise((resolve, reject) => {
+        client.add(userDN, {
+          objectClass: ['top', 'person', 'organizationalPerson', 'user'],
+          cn: `${u.firstName} ${u.lastName}`,
+          sAMAccountName: finalUsername,
+          userPrincipalName: `${finalUsername}@${UPN_SUFFIX}`,
+          givenName: u.firstName,
+          sn: u.lastName,
+          displayName: `${u.firstName} ${u.lastName}`,
+          userAccountControl: '514', // disabled
+        }, err => (err ? reject(err) : resolve()));
+      });
+
+      // Step 2: Set password via LDAPS (required — plain LDAP blocks this)
+      await new Promise((resolve, reject) => {
+        client.modify(userDN, [
+          new ldap.Change({
+            operation: 'replace',
+            modification: new ldap.Attribute({
+              type: 'unicodePwd',
+              values: [encodePassword(u.password)],
+            }),
+          }),
+        ], err => (err ? reject(err) : resolve()));
+      });
+
+      // Step 3: Enable account + password never expires (userAccountControl 0x10200 = 66048)
+      await new Promise((resolve, reject) => {
+        client.modify(userDN, [
+          new ldap.Change({
+            operation: 'replace',
+            modification: new ldap.Attribute({
+              type: 'userAccountControl',
+              values: ['66048'],
+            }),
+          }),
+        ], err => (err ? reject(err) : resolve()));
+      });
+
+      // Step 4: Add to groups
+      for (const groupName of (u.groups || [])) {
+        const groupDN = await findGroupDN(groupName);
+        if (groupDN) {
+          await new Promise((resolve, reject) => {
+            client.modify(groupDN, [
+              new ldap.Change({
+                operation: 'add',
+                modification: new ldap.Attribute({
+                  type: 'member',
+                  values: [userDN],
+                }),
+              }),
+            ], err => (err ? reject(err) : resolve()));
+          });
+        }
+      }
+
+      createdUsers.push({
+        originalId: u.originalId,
+        firstName: u.firstName,
+        lastName: u.lastName,
+        username: finalUsername,
+        password: u.password,
+        groups: u.groups ? u.groups.length : 0,
       });
     }
 
-    scriptLines.push(
-      `  $createdUsersOut += @{`,
-      `       originalId = '${u.originalId}'`,
-      `       firstName = '${escapePS(u.firstName)}'`,
-      `       lastName = '${escapePS(u.lastName)}'`,
-      `       username = $finalUn_${un}`,
-      `       password = '${escapePS(u.password)}'`,
-      `       groups = ${u.groups ? u.groups.length : 0}`,
-      `  }`
-    );
-  });
-
-  scriptLines.push(
-    `  @($createdUsersOut) | ConvertTo-Json -Compress`,
-    `} catch {`,
-    `  Write-Error $_.Exception.Message`,
-    `}`
-  );
-
-  try {
-    const { stdout, stderr } = await runPowerShellScript(scriptLines);
-    const match = stdout.match(/\[.*\]|\{.*\}/s);
-    if (match) {
-        let parsedPayload = JSON.parse(match[0]);
-        if (!Array.isArray(parsedPayload)) parsedPayload = [parsedPayload];
-        return res.json({ success: true, message: 'Users provisioned successfully', createdUsers: parsedPayload });
-    } else {
-        throw new Error(stderr || stdout || 'Provisioning returned no confirmation — check AD connectivity and credentials');
-    }
+    await unbind(client);
+    res.json({ success: true, message: 'Users provisioned successfully', createdUsers });
   } catch (err) {
-    return res.status(500).json({ error: err.message || 'Provisioning failed' });
+    client.destroy();
+    res.status(500).json({ error: err.message || 'Provisioning failed' });
   }
 });
 
 const server = app.listen(PORT, () => {
-  console.log("Backend server running on port " + PORT);
+  console.log(`Backend server running on port ${PORT}`);
 });
 server.on('error', (e) => {
   if (e.code === 'EADDRINUSE') {

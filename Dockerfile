@@ -1,24 +1,9 @@
-# escape=`
-# Windows container required — AD PowerShell module only runs on Windows.
-# Docker Desktop must be switched to Windows containers mode.
-FROM mcr.microsoft.com/windows/servercore:ltsc2022
+FROM node:20-alpine
 
-SHELL ["powershell", "-Command", "$ErrorActionPreference = 'Stop'; $ProgressPreference = 'SilentlyContinue';"]
-
-# Install Node.js 20 LTS
-RUN Invoke-WebRequest -Uri 'https://nodejs.org/dist/v20.11.0/node-v20.11.0-x64.msi' `
-        -OutFile 'C:\node.msi'; `
-    Start-Process msiexec.exe -Wait -ArgumentList '/i C:\node.msi /quiet /norestart'; `
-    Remove-Item -Force 'C:\node.msi'
-
-# Install RSAT Active Directory PowerShell module (required for AD cmdlets)
-RUN Install-WindowsFeature -Name RSAT-AD-PowerShell
-
-WORKDIR C:\app
+WORKDIR /app
 
 COPY package*.json ./
 
-# Install all deps — devDeps (vite, etc.) are needed for the build step
 RUN npm ci
 
 # Vite bakes these into the JS bundle at build time.
@@ -32,7 +17,7 @@ ENV VITE_DEFAULT_OU=${VITE_DEFAULT_OU}
 COPY . .
 
 # Build the React frontend, then strip devDependencies
-RUN npm run build; npm prune --omit=dev
+RUN npm run build && npm prune --omit=dev
 
 ENV NODE_ENV=production
 ENV PORT=3001
