@@ -1,0 +1,15 @@
+services:
+  app:
+    build:
+      context: .
+      args:
+        # These are baked into the frontend bundle at build time.
+        # Change them here (or in your shell/.env) before running docker compose build.
+        - VITE_DEFAULT_DC=${VITE_DEFAULT_DC:-10.0.0.10}
+        - VITE_DEFAULT_OU=${VITE_DEFAULT_OU:-OU=Users,OU=Corp,DC=corp,DC=example,DC=com}
+    ports:
+      - "3001:3001"
+    environment:
+      - PORT=3001
+      - UPN_SUFFIX=${UPN_SUFFIX:-corp.example.com}
+    restart: unless-stopped
