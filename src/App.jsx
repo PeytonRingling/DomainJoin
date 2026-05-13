@@ -15,6 +15,7 @@ function App() {
   const [fetchingGroups, setFetchingGroups] = useState(false);
   const [selectedOu, setSelectedOu] = useState(import.meta.env.VITE_DEFAULT_OU || 'OU=Users,OU=Corp,DC=corp,DC=example,DC=com');
   const [createdList, setCreatedList] = useState([]);
+  const [copiedIndex, setCopiedIndex] = useState(null);
 
   const fetchDomainData = async () => {
     setFetchingGroups(true);
@@ -155,8 +156,10 @@ function App() {
     URL.revokeObjectURL(url);
   };
 
-  const copyCredentials = (u) => {
+  const copyCredentials = (u, i) => {
     navigator.clipboard.writeText(`Username: ${u.username}\nPassword: ${u.password}`);
+    setCopiedIndex(i);
+    setTimeout(() => setCopiedIndex(null), 2000);
   };
 
   const addUserRow = () =>
@@ -212,7 +215,7 @@ function App() {
               <div className="input-container">
                 <label className="input-label">Admin Username</label>
                 <div style={{ position: 'relative' }}>
-                  <input type="text" className="input-field" placeholder="DOMAIN\admin" value={loginForm.username} onChange={e => setLoginForm({ ...loginForm, username: e.target.value })} required />
+                  <input type="text" className="input-field" placeholder="admin" value={loginForm.username} onChange={e => setLoginForm({ ...loginForm, username: e.target.value })} required />
                   <User className="input-icon" size={20} />
                 </div>
               </div>
@@ -403,11 +406,16 @@ function App() {
               <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} style={{ marginTop: '2.5rem' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
                   <h3 style={{ fontSize: '0.9rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>Active Directory Transaction Log</h3>
-                  {createdList.some(u => !u.failed) && (
-                    <button type="button" onClick={exportCSV} style={{ background: 'rgba(56,189,248,0.1)', border: '1px solid rgba(56,189,248,0.25)', color: 'var(--primary)', padding: '0.35rem 0.75rem', borderRadius: '8px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.35rem', transition: 'all 0.2s' }}>
-                      <Download size={13} /> Export CSV
+                  <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    {createdList.some(u => !u.failed) && (
+                      <button type="button" onClick={exportCSV} style={{ background: 'rgba(56,189,248,0.1)', border: '1px solid rgba(56,189,248,0.25)', color: 'var(--primary)', padding: '0.35rem 0.75rem', borderRadius: '8px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.35rem', transition: 'all 0.2s' }}>
+                        <Download size={13} /> Export CSV
+                      </button>
+                    )}
+                    <button type="button" onClick={() => setCreatedList([])} style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', color: 'var(--error)', padding: '0.35rem 0.75rem', borderRadius: '8px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.35rem', transition: 'all 0.2s' }}>
+                      <X size={13} /> Clear
                     </button>
-                  )}
+                  </div>
                 </div>
                 <div>
                   {createdList.map((u, i) => (
@@ -442,8 +450,8 @@ function App() {
                           <div style={{ background: 'rgba(16, 185, 129, 0.1)', padding: '0.65rem 1rem', borderRadius: '10px', border: '1px solid rgba(16,185,129,0.2)' }}>
                             <code style={{ color: 'var(--success)', fontWeight: 600, fontFamily: 'monospace', fontSize: '0.95rem' }}>{u.password}</code>
                           </div>
-                          <button type="button" onClick={() => copyCredentials(u)} title="Copy credentials" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'var(--text-muted)', padding: '0.6rem', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', transition: 'all 0.2s' }}>
-                            <ClipboardCopy size={15} />
+                          <button type="button" onClick={() => copyCredentials(u, i)} title="Copy credentials" style={{ background: copiedIndex === i ? 'rgba(16,185,129,0.15)' : 'rgba(255,255,255,0.05)', border: copiedIndex === i ? '1px solid rgba(16,185,129,0.3)' : '1px solid rgba(255,255,255,0.1)', color: copiedIndex === i ? 'var(--success)' : 'var(--text-muted)', padding: '0.5rem 0.7rem', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.3rem', transition: 'all 0.2s', fontSize: '0.75rem', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                            {copiedIndex === i ? <><CheckCircle2 size={14} /> Copied!</> : <ClipboardCopy size={15} />}
                           </button>
                         </div>
                       )}

@@ -24,6 +24,10 @@ const createClient = (dcServer) =>
     connectTimeout: 15000,
   });
 
+// Auto-append UPN suffix if no domain is specified (no @ or \)
+const normalizeUsername = (username) =>
+  username.includes('@') || username.includes('\\') ? username : `${username}@${UPN_SUFFIX}`;
+
 // Escape special characters in LDAP filter values (RFC 4515)
 const escapeLdapFilter = (val) =>
   String(val).replace(/[\x00()*\\]/g, c => `\\${c.charCodeAt(0).toString(16).padStart(2, '0')}`);
@@ -73,7 +77,7 @@ app.post('/api/connect', async (req, res) => {
 
   const client = createClient(dcServer);
   try {
-    await client.bind(username, password);
+    await client.bind(normalizeUsername(username), password);
     onLoginSuccess(ip);
     res.json({ success: true, message: 'Connected to domain successfully' });
   } catch (err) {
@@ -91,7 +95,7 @@ app.post('/api/groups', async (req, res) => {
 
   const client = createClient(dcServer);
   try {
-    await client.bind(username, password);
+    await client.bind(normalizeUsername(username), password);
 
     const { searchEntries } = await client.search(BASE_DN, {
       filter: '(objectClass=group)',
@@ -126,7 +130,7 @@ app.post('/api/provision', async (req, res) => {
   const client = createClient(dcServer);
 
   try {
-    await client.bind(adminUser, adminPass);
+    await client.bind(normalizeUsername(adminUser), adminPass);
 
     const userExists = async (sam) => {
       const { searchEntries } = await client.search(BASE_DN, {
