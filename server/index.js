@@ -287,6 +287,56 @@ app.post('/api/users/search', async (req, res) => {
   }
 });
 
+app.post('/api/users/removegroups', async (req, res) => {
+  const { dcServer, username, password, userDn, groups } = req.body;
+  if (!dcServer || !username || !password)
+    return res.status(400).json({ error: 'Missing credentials' });
+  if (!userDn || !Array.isArray(groups) || groups.length === 0)
+    return res.status(400).json({ error: 'Missing user DN or groups' });
+
+  const client = createClient(dcServer);
+  try {
+    await client.bind(normalizeUsername(username), password);
+
+    const removed = [];
+    const failed = [];
+
+    for (const groupName of groups) {
+      try {
+        const { searchEntries } = await client.search(BASE_DN, {
+          filter: `(&(objectClass=group)(cn=${escapeLdapFilter(groupName)}))`,
+          scope: 'sub',
+          attributes: ['dn'],
+        });
+        if (!searchEntries.length) {
+          failed.push({ group: groupName, error: 'Group not found' });
+          continue;
+        }
+        await client.modify(searchEntries[0].dn, [
+          new Change({
+            operation: 'delete',
+            modification: new Attribute({ type: 'member', values: [userDn] }),
+          }),
+        ]);
+        removed.push(groupName);
+      } catch (err) {
+        // Code 16 = noSuchAttribute — user wasn't a member, treat as success
+        if (err.code === 16 || err.message?.toLowerCase().includes('no such')) {
+          removed.push(groupName);
+        } else {
+          failed.push({ group: groupName, error: err.message || 'Unknown error' });
+        }
+      }
+    }
+
+    res.json({ success: true, removed, failed });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to remove group memberships' });
+  } finally {
+    await client.unbind().catch(() => {});
+  }
+});
+
 app.post('/api/users/addgroups', async (req, res) => {
   const { dcServer, username, password, userDn, groups } = req.body;
   if (!dcServer || !username || !password)

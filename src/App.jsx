@@ -27,9 +27,19 @@ function App() {
   const [savingDn, setSavingDn] = useState(null);
   const [savedDn, setSavedDn] = useState(null);
 
-  const getUserEdit = (dn) => userEdits[dn] || { showPicker: false, groupSearch: '', pending: [] };
+  const getUserEdit = (dn) => userEdits[dn] || { showPicker: false, groupSearch: '', selected: null };
   const updateUserEdit = (dn, updates) =>
     setUserEdits(prev => ({ ...prev, [dn]: { ...getUserEdit(dn), ...updates } }));
+
+  const togglePicker = (user) => {
+    const edit = getUserEdit(user.dn);
+    // Initialise selected from current memberships on first open
+    const next = !edit.showPicker;
+    updateUserEdit(user.dn, {
+      showPicker: next,
+      selected: next && edit.selected === null ? [...user.groups] : edit.selected,
+    });
+  };
 
   const fetchDomainData = async () => {
     setFetchingGroups(true);
@@ -182,28 +192,50 @@ function App() {
     }
   };
 
-  const handleAddGroups = async (user) => {
+  const handleSaveGroups = async (user) => {
     const edit = getUserEdit(user.dn);
-    if (!edit.pending.length) return;
+    if (!edit.selected) return;
+
+    const toAdd    = edit.selected.filter(g => !user.groups.includes(g));
+    const toRemove = user.groups.filter(g => !edit.selected.includes(g));
+    if (!toAdd.length && !toRemove.length) return;
+
     setSavingDn(user.dn); setError(null);
     try {
-      const res = await fetch('/api/users/addgroups', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...loginForm, userDn: user.dn, groups: edit.pending }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        setSearchResults(prev => prev.map(u =>
-          u.dn === user.dn ? { ...u, groups: [...new Set([...u.groups, ...data.added])].sort() } : u
-        ));
-        updateUserEdit(user.dn, { pending: [], showPicker: false });
-        setSavedDn(user.dn);
-        setTimeout(() => setSavedDn(null), 2000);
-        if (data.failed.length) setError(`${data.failed.length} group(s) could not be added.`);
-      } else {
-        setError(data.error || 'Failed to update group memberships');
+      let added = [], removed = [], errors = [];
+
+      if (toAdd.length) {
+        const res = await fetch('/api/users/addgroups', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...loginForm, userDn: user.dn, groups: toAdd }),
+        });
+        const data = await res.json();
+        if (data.success) added = data.added;
+        else errors.push(data.error || 'Failed to add groups');
       }
+
+      if (toRemove.length) {
+        const res = await fetch('/api/users/removegroups', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...loginForm, userDn: user.dn, groups: toRemove }),
+        });
+        const data = await res.json();
+        if (data.success) removed = data.removed;
+        else errors.push(data.error || 'Failed to remove groups');
+      }
+
+      const newGroups = [...new Set([...user.groups, ...added])]
+        .filter(g => !removed.includes(g)).sort();
+
+      setSearchResults(prev => prev.map(u =>
+        u.dn === user.dn ? { ...u, groups: newGroups } : u
+      ));
+      updateUserEdit(user.dn, { selected: newGroups, showPicker: false });
+      setSavedDn(user.dn);
+      setTimeout(() => setSavedDn(null), 2000);
+      if (errors.length) setError(errors.join(' — '));
     } catch {
       setError('Failed to reach backend server.');
     } finally {
@@ -585,10 +617,10 @@ function App() {
                         </div>
                         <button
                           type="button"
-                          onClick={() => updateUserEdit(user.dn, { showPicker: !edit.showPicker })}
+                          onClick={() => togglePicker(user)}
                           style={{ background: edit.showPicker ? 'rgba(56,189,248,0.2)' : 'rgba(255,255,255,0.05)', border: edit.showPicker ? '1px solid rgba(56,189,248,0.3)' : '1px solid rgba(255,255,255,0.08)', color: edit.showPicker ? 'var(--primary)' : 'var(--text-muted)', padding: '0.6rem 0.9rem', borderRadius: '10px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.4rem', flexShrink: 0, marginLeft: '1rem', fontSize: '0.85rem', fontWeight: 600, transition: 'all 0.2s' }}
                         >
-                          <Tags size={15} /> {edit.pending.length > 0 ? `${edit.pending.length} Queued` : 'Add Groups'}
+                          <Tags size={15} /> Edit Groups
                         </button>
                       </div>
 
@@ -608,45 +640,58 @@ function App() {
                                 <div style={{ padding: '1rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.9rem' }}>No groups discovered.</div>
                               ) : (
                                 adGroups.filter(g => g.toLowerCase().includes(edit.groupSearch.toLowerCase())).map(g => {
-                                  const isMember  = user.groups.includes(g);
-                                  const isPending = edit.pending.includes(g);
+                                  const wasMember = user.groups.includes(g);
+                                  const isSelected = (edit.selected ?? user.groups).includes(g);
+                                  const isToAdd    = !wasMember && isSelected;
+                                  const isToRemove = wasMember && !isSelected;
                                   return (
-                                    <label key={g} style={{ display: 'flex', alignItems: 'center', padding: '0.5rem 0.8rem', cursor: isMember ? 'default' : 'pointer', background: isMember ? 'rgba(56,189,248,0.08)' : isPending ? 'rgba(56,189,248,0.15)' : 'transparent', borderRadius: '8px', transition: 'all 0.2s', border: isPending ? '1px solid rgba(56,189,248,0.3)' : '1px solid transparent', marginBottom: '4px', opacity: isMember ? 0.6 : 1 }}>
+                                    <label key={g} style={{ display: 'flex', alignItems: 'center', padding: '0.5rem 0.8rem', cursor: 'pointer', background: isToRemove ? 'rgba(239,68,68,0.08)' : isToAdd ? 'rgba(56,189,248,0.15)' : isSelected ? 'rgba(56,189,248,0.08)' : 'transparent', borderRadius: '8px', transition: 'all 0.2s', border: isToRemove ? '1px solid rgba(239,68,68,0.25)' : isToAdd ? '1px solid rgba(56,189,248,0.3)' : '1px solid transparent', marginBottom: '4px' }}>
                                       <input
                                         type="checkbox"
-                                        disabled={isMember}
-                                        checked={isMember || isPending}
+                                        checked={isSelected}
                                         onChange={(e) => {
+                                          const cur = edit.selected ?? [...user.groups];
                                           const next = e.target.checked
-                                            ? [...edit.pending, g]
-                                            : edit.pending.filter(x => x !== g);
-                                          updateUserEdit(user.dn, { pending: next });
+                                            ? [...cur, g]
+                                            : cur.filter(x => x !== g);
+                                          updateUserEdit(user.dn, { selected: next });
                                         }}
                                         style={{ marginRight: '0.75rem', accentColor: 'var(--primary)', width: '16px', height: '16px' }}
                                       />
-                                      <span style={{ fontSize: '0.9rem', color: isMember || isPending ? '#fff' : 'var(--text-main)', fontWeight: isMember || isPending ? 500 : 400 }}>{g}</span>
-                                      {isMember && <span style={{ marginLeft: 'auto', fontSize: '0.7rem', color: 'var(--primary)', fontWeight: 600 }}>MEMBER</span>}
+                                      <span style={{ fontSize: '0.9rem', color: isSelected || isToAdd ? '#fff' : 'var(--text-main)', fontWeight: isSelected ? 500 : 400 }}>{g}</span>
+                                      {isToAdd    && <span style={{ marginLeft: 'auto', fontSize: '0.7rem', color: 'var(--primary)', fontWeight: 700 }}>ADD</span>}
+                                      {isToRemove && <span style={{ marginLeft: 'auto', fontSize: '0.7rem', color: 'var(--error)',   fontWeight: 700 }}>REMOVE</span>}
                                     </label>
                                   );
                                 })
                               )}
                             </div>
 
-                            {edit.pending.length > 0 && (
-                              <button
-                                type="button"
-                                onClick={() => handleAddGroups(user)}
-                                disabled={isSaving}
-                                style={{ marginTop: '0.75rem', width: '100%', background: isSaved ? 'rgba(16,185,129,0.15)' : 'linear-gradient(135deg,#38bdf8,#0ea5e9)', border: isSaved ? '1px solid rgba(16,185,129,0.3)' : 'none', color: isSaved ? 'var(--success)' : '#fff', padding: '0.75rem', borderRadius: '10px', cursor: isSaving ? 'not-allowed' : 'pointer', fontFamily: 'inherit', fontSize: '0.9rem', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem', transition: 'all 0.2s', opacity: isSaving ? 0.7 : 1 }}
-                              >
-                                {isSaving
-                                  ? <><motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1 }}><TerminalSquare size={16} /></motion.div> Saving...</>
-                                  : isSaved
-                                    ? <><CheckCircle2 size={16} /> Saved!</>
-                                    : `Add ${edit.pending.length} group${edit.pending.length !== 1 ? 's' : ''} to ${user.displayName}`
-                                }
-                              </button>
-                            )}
+                            {(() => {
+                              const sel = edit.selected ?? user.groups;
+                              const toAdd    = sel.filter(g => !user.groups.includes(g));
+                              const toRemove = user.groups.filter(g => !sel.includes(g));
+                              const hasChanges = toAdd.length > 0 || toRemove.length > 0;
+                              const label = [
+                                toAdd.length    ? `Add ${toAdd.length}`    : null,
+                                toRemove.length ? `Remove ${toRemove.length}` : null,
+                              ].filter(Boolean).join(', ');
+                              return hasChanges ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handleSaveGroups(user)}
+                                  disabled={isSaving}
+                                  style={{ marginTop: '0.75rem', width: '100%', background: isSaved ? 'rgba(16,185,129,0.15)' : 'linear-gradient(135deg,#38bdf8,#0ea5e9)', border: isSaved ? '1px solid rgba(16,185,129,0.3)' : 'none', color: isSaved ? 'var(--success)' : '#fff', padding: '0.75rem', borderRadius: '10px', cursor: isSaving ? 'not-allowed' : 'pointer', fontFamily: 'inherit', fontSize: '0.9rem', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem', transition: 'all 0.2s', opacity: isSaving ? 0.7 : 1 }}
+                                >
+                                  {isSaving
+                                    ? <><motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1 }}><TerminalSquare size={16} /></motion.div> Saving...</>
+                                    : isSaved
+                                      ? <><CheckCircle2 size={16} /> Saved!</>
+                                      : `Save changes — ${label}`
+                                  }
+                                </button>
+                              ) : null;
+                            })()}
                           </div>
                         </motion.div>
                       )}
