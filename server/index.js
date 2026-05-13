@@ -32,6 +32,13 @@ const normalizeUsername = (username) =>
 const escapeLdapFilter = (val) =>
   String(val).replace(/[\x00()*\\]/g, c => `\\${c.charCodeAt(0).toString(16).padStart(2, '0')}`);
 
+// Like escapeLdapFilter but preserves * so callers can build wildcard filters
+const escapeLdapValue = (val) =>
+  String(val).replace(/[\x00()\\]/g, c => `\\${c.charCodeAt(0).toString(16).padStart(2, '0')}`);
+
+// Extract CN from a full DN string: "CN=GroupName,OU=..." -> "GroupName"
+const cnFromDn = (dn) => { const m = dn.match(/^CN=([^,]+)/i); return m ? m[1] : dn; };
+
 // AD requires passwords to be UTF-16LE encoded and wrapped in quotes
 const encodePassword = (password) =>
   Buffer.from(`"${password}"`, 'utf16le');
@@ -236,6 +243,95 @@ app.post('/api/provision', async (req, res) => {
     });
   } catch (err) {
     res.status(500).json({ error: err.message || 'Provisioning failed' });
+  } finally {
+    await client.unbind().catch(() => {});
+  }
+});
+
+app.post('/api/users/search', async (req, res) => {
+  const { dcServer, username, password, query } = req.body;
+  if (!dcServer || !username || !password)
+    return res.status(400).json({ error: 'Missing credentials' });
+  if (!query || query.trim().length < 2)
+    return res.status(400).json({ error: 'Search query must be at least 2 characters' });
+
+  const client = createClient(dcServer);
+  try {
+    await client.bind(normalizeUsername(username), password);
+
+    const esc = escapeLdapValue(query.trim());
+    const { searchEntries } = await client.search(BASE_DN, {
+      filter: `(&(objectClass=user)(objectCategory=person)(|(sAMAccountName=*${esc}*)(displayName=*${esc}*)(cn=*${esc}*)))`,
+      scope: 'sub',
+      attributes: ['dn', 'cn', 'sAMAccountName', 'displayName', 'givenName', 'sn', 'memberOf'],
+      sizeLimit: 50,
+    });
+
+    const users = searchEntries.map(e => {
+      const memberOf = e.memberOf
+        ? (Array.isArray(e.memberOf) ? e.memberOf : [e.memberOf])
+        : [];
+      return {
+        dn: e.dn,
+        displayName: e.displayName || `${e.givenName || ''} ${e.sn || ''}`.trim() || e.cn,
+        username: Array.isArray(e.sAMAccountName) ? e.sAMAccountName[0] : e.sAMAccountName,
+        groups: memberOf.map(cnFromDn).sort(),
+      };
+    });
+
+    res.json({ success: true, users });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Search failed' });
+  } finally {
+    await client.unbind().catch(() => {});
+  }
+});
+
+app.post('/api/users/addgroups', async (req, res) => {
+  const { dcServer, username, password, userDn, groups } = req.body;
+  if (!dcServer || !username || !password)
+    return res.status(400).json({ error: 'Missing credentials' });
+  if (!userDn || !Array.isArray(groups) || groups.length === 0)
+    return res.status(400).json({ error: 'Missing user DN or groups' });
+
+  const client = createClient(dcServer);
+  try {
+    await client.bind(normalizeUsername(username), password);
+
+    const added = [];
+    const failed = [];
+
+    for (const groupName of groups) {
+      try {
+        const { searchEntries } = await client.search(BASE_DN, {
+          filter: `(&(objectClass=group)(cn=${escapeLdapFilter(groupName)}))`,
+          scope: 'sub',
+          attributes: ['dn'],
+        });
+        if (!searchEntries.length) {
+          failed.push({ group: groupName, error: 'Group not found' });
+          continue;
+        }
+        await client.modify(searchEntries[0].dn, [
+          new Change({
+            operation: 'add',
+            modification: new Attribute({ type: 'member', values: [userDn] }),
+          }),
+        ]);
+        added.push(groupName);
+      } catch (err) {
+        // Code 20 = attributeOrValueExists — user is already a member, treat as success
+        if (err.code === 20 || err.message?.toLowerCase().includes('already')) {
+          added.push(groupName);
+        } else {
+          failed.push({ group: groupName, error: err.message || 'Unknown error' });
+        }
+      }
+    }
+
+    res.json({ success: true, added, failed });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to update group memberships' });
   } finally {
     await client.unbind().catch(() => {});
   }
