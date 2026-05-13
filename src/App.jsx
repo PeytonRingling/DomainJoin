@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Shield, UserPlus, Server, Lock, User, TerminalSquare, AlertCircle, CheckCircle2, Tags, X, Plus, FolderTree, LogOut, Download, ClipboardCopy } from 'lucide-react';
+import { Shield, Server, Lock, User, TerminalSquare, AlertCircle, CheckCircle2, Tags, X, Plus, FolderTree, LogOut, Download, ClipboardCopy } from 'lucide-react';
 import './index.css';
 
 function App() {
@@ -257,14 +257,9 @@ function App() {
                   <CheckCircle2 size={14} /> Connected & Target Scoped for DC: {loginForm.dcServer}
                 </p>
               </div>
-              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                <div style={{ background: 'rgba(56,189,248,0.1)', padding: '0.85rem', borderRadius: '16px' }}>
-                  <UserPlus size={28} color="var(--primary)" />
-                </div>
-                <button type="button" onClick={handleLogout} title="Disconnect" style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', color: 'var(--error)', padding: '0.85rem', borderRadius: '16px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
-                  <LogOut size={22} />
-                </button>
-              </div>
+              <button type="button" onClick={handleLogout} title="Disconnect" style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', color: 'var(--error)', padding: '0.85rem', borderRadius: '16px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
+                <LogOut size={22} />
+              </button>
             </div>
 
             <form onSubmit={handleBulkCreate}>
