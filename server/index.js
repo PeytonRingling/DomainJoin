@@ -252,34 +252,42 @@ app.post('/api/users/search', async (req, res) => {
   const { dcServer, username, password, query } = req.body;
   if (!dcServer || !username || !password)
     return res.status(400).json({ error: 'Missing credentials' });
-  if (!query || query.trim().length < 2)
+
+  const listAll = !query || !query.trim();
+  if (!listAll && query.trim().length < 2)
     return res.status(400).json({ error: 'Search query must be at least 2 characters' });
 
   const client = createClient(dcServer);
   try {
     await client.bind(normalizeUsername(username), password);
 
-    const esc = escapeLdapValue(query.trim());
+    const sizeLimit = listAll ? 200 : 50;
+    const filter = listAll
+      ? '(&(objectClass=user)(objectCategory=person))'
+      : (() => { const esc = escapeLdapValue(query.trim()); return `(&(objectClass=user)(objectCategory=person)(|(sAMAccountName=*${esc}*)(displayName=*${esc}*)(cn=*${esc}*)))`; })();
+
     const { searchEntries } = await client.search(BASE_DN, {
-      filter: `(&(objectClass=user)(objectCategory=person)(|(sAMAccountName=*${esc}*)(displayName=*${esc}*)(cn=*${esc}*)))`,
+      filter,
       scope: 'sub',
-      attributes: ['dn', 'cn', 'sAMAccountName', 'displayName', 'givenName', 'sn', 'memberOf'],
-      sizeLimit: 50,
+      attributes: ['dn', 'cn', 'sAMAccountName', 'displayName', 'givenName', 'sn', 'memberOf', 'userAccountControl'],
+      sizeLimit,
     });
 
     const users = searchEntries.map(e => {
       const memberOf = e.memberOf
         ? (Array.isArray(e.memberOf) ? e.memberOf : [e.memberOf])
         : [];
+      const uac = parseInt(Array.isArray(e.userAccountControl) ? e.userAccountControl[0] : e.userAccountControl) || 0;
       return {
         dn: e.dn,
         displayName: e.displayName || `${e.givenName || ''} ${e.sn || ''}`.trim() || e.cn,
         username: Array.isArray(e.sAMAccountName) ? e.sAMAccountName[0] : e.sAMAccountName,
         groups: memberOf.map(cnFromDn).sort(),
+        disabled: !!(uac & 2),
       };
     });
 
-    res.json({ success: true, users });
+    res.json({ success: true, users, truncated: listAll && searchEntries.length >= sizeLimit });
   } catch (err) {
     res.status(500).json({ error: err.message || 'Search failed' });
   } finally {
@@ -382,6 +390,31 @@ app.post('/api/users/addgroups', async (req, res) => {
     res.json({ success: true, added, failed });
   } catch (err) {
     res.status(500).json({ error: err.message || 'Failed to update group memberships' });
+  } finally {
+    await client.unbind().catch(() => {});
+  }
+});
+
+app.post('/api/users/setstatus', async (req, res) => {
+  const { dcServer, username, password, userDn, disabled } = req.body;
+  if (!dcServer || !username || !password)
+    return res.status(400).json({ error: 'Missing credentials' });
+  if (!userDn || typeof disabled !== 'boolean')
+    return res.status(400).json({ error: 'Missing user DN or status' });
+
+  // 514 = NORMAL_ACCOUNT | ACCOUNTDISABLE; 66048 = NORMAL_ACCOUNT | DONT_EXPIRE_PASSWORD
+  const client = createClient(dcServer);
+  try {
+    await client.bind(normalizeUsername(username), password);
+    await client.modify(userDn, [
+      new Change({
+        operation: 'replace',
+        modification: new Attribute({ type: 'userAccountControl', values: [disabled ? '514' : '66048'] }),
+      }),
+    ]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to update user status' });
   } finally {
     await client.unbind().catch(() => {});
   }

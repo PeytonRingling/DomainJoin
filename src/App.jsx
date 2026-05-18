@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Shield, Server, Lock, User, TerminalSquare, AlertCircle, CheckCircle2, Tags, X, Plus, FolderTree, LogOut, Download, ClipboardCopy, Search, UserCog, KeyRound, Trash2 } from 'lucide-react';
+import { Shield, Server, Lock, User, TerminalSquare, AlertCircle, CheckCircle2, Tags, X, Plus, FolderTree, LogOut, Download, ClipboardCopy, Search, UserCog, KeyRound, Trash2, UserX, UserCheck, Users } from 'lucide-react';
 import './index.css';
 
 function App() {
@@ -28,6 +28,8 @@ function App() {
   const [savedDn, setSavedDn] = useState(null);
   const [confirmDeleteDn, setConfirmDeleteDn] = useState(null);
   const [resettingDn, setResettingDn] = useState(null);
+  const [disablingDn, setDisablingDn] = useState(null);
+  const [listTruncated, setListTruncated] = useState(false);
 
   const dairyProducts = ['Cheddar', 'Gouda', 'Brie', 'Milk', 'Yogurt', 'Butter', 'Swiss', 'Provolone', 'Cream', 'Feta', 'Parmesan', 'Mozzarella', 'Ricotta', 'Havarti', 'PepperJack', 'Gruyere', 'Muenster', 'Colby'];
   const generatePassword = () => `${dairyProducts[Math.floor(Math.random() * dairyProducts.length)]}!${Math.floor(Math.random() * 9000) + 1000}`;
@@ -172,10 +174,34 @@ function App() {
     }
   };
 
+  const handleListAllUsers = async () => {
+    setSearchLoading(true); setError(null); setSearchQuery(''); setListTruncated(false);
+    try {
+      const res = await fetch('/api/users/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...loginForm, query: '' }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSearchResults(data.users);
+        setUserEdits({});
+        setListTruncated(data.truncated || false);
+        if (data.users.length === 0) setError('No users found in the directory.');
+      } else {
+        setError(data.error || 'Failed to list users');
+      }
+    } catch {
+      setError('Failed to reach backend server.');
+    } finally {
+      setSearchLoading(false);
+    }
+  };
+
   const handleUserSearch = async (e) => {
     e.preventDefault();
-    if (!searchQuery.trim()) return;
-    setSearchLoading(true); setError(null);
+    if (!searchQuery.trim()) { handleListAllUsers(); return; }
+    setSearchLoading(true); setError(null); setListTruncated(false);
     try {
       const res = await fetch('/api/users/search', {
         method: 'POST',
@@ -194,6 +220,27 @@ function App() {
       setError('Failed to reach backend server.');
     } finally {
       setSearchLoading(false);
+    }
+  };
+
+  const handleToggleDisable = async (user) => {
+    setDisablingDn(user.dn); setError(null);
+    try {
+      const res = await fetch('/api/users/setstatus', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...loginForm, userDn: user.dn, disabled: !user.disabled }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSearchResults(prev => prev.map(u => u.dn === user.dn ? { ...u, disabled: !user.disabled } : u));
+      } else {
+        setError(data.error || 'Failed to update user status');
+      }
+    } catch {
+      setError('Failed to reach backend server.');
+    } finally {
+      setDisablingDn(null);
     }
   };
 
@@ -617,27 +664,38 @@ function App() {
             {/* ── Manage Users tab ── */}
             {activeTab === 'manage' && (
               <div>
-                <form onSubmit={handleUserSearch} style={{ display: 'flex', gap: '0.75rem', marginBottom: '1.5rem' }}>
-                  <div style={{ flex: 1, position: 'relative' }}>
-                    <input
-                      type="text"
-                      className="input-field"
-                      placeholder="Search by name or username..."
-                      value={searchQuery}
-                      onChange={e => setSearchQuery(e.target.value)}
-                    />
-                    <Search className="input-icon" size={18} style={{ top: '50%', transform: 'translateY(-50%)' }} />
-                  </div>
-                  <button type="submit" className="btn-primary" disabled={searchLoading} style={{ width: 'auto', padding: '0 1.25rem', flexShrink: 0 }}>
-                    {searchLoading ? <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1 }}><TerminalSquare size={18} /></motion.div> : 'Search'}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1.5rem' }}>
+                  <form onSubmit={handleUserSearch} style={{ display: 'flex', gap: '0.75rem' }}>
+                    <div style={{ flex: 1, position: 'relative' }}>
+                      <input
+                        type="text"
+                        className="input-field"
+                        placeholder="Search by name or username..."
+                        value={searchQuery}
+                        onChange={e => setSearchQuery(e.target.value)}
+                      />
+                      <Search className="input-icon" size={18} style={{ top: '50%', transform: 'translateY(-50%)' }} />
+                    </div>
+                    <button type="submit" className="btn-primary" disabled={searchLoading} style={{ width: 'auto', padding: '0 1.25rem', flexShrink: 0 }}>
+                      {searchLoading ? <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1 }}><TerminalSquare size={18} /></motion.div> : 'Search'}
+                    </button>
+                  </form>
+                  <button type="button" onClick={handleListAllUsers} disabled={searchLoading} style={{ alignSelf: 'flex-start', background: 'transparent', border: 'none', color: 'var(--text-muted)', fontSize: '0.82rem', cursor: 'pointer', padding: 0, fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: '0.3rem', textDecoration: 'underline', textUnderlineOffset: '3px' }}>
+                    <Users size={13} /> Browse all users
                   </button>
-                </form>
+                </div>
 
                 {error && (
                   <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} style={{ color: 'var(--error)', fontSize: '0.9rem', display: 'flex', alignItems: 'flex-start', gap: '0.5rem', marginBottom: '1.5rem', background: 'rgba(239, 68, 68, 0.1)', padding: '1rem', borderRadius: '10px', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
                     <AlertCircle size={18} style={{ flexShrink: 0, marginTop: '1px' }} />
                     <span style={{ wordBreak: 'break-word', lineHeight: 1.4 }}>{error}</span>
                   </motion.div>
+                )}
+
+                {listTruncated && (
+                  <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    <AlertCircle size={13} /> Showing first 200 users — use search to narrow results.
+                  </div>
                 )}
 
                 <AnimatePresence>
@@ -649,13 +707,16 @@ function App() {
                     <motion.div
                       key={user.dn}
                       initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95 }}
-                      style={{ background: 'rgba(15,23,42,0.4)', borderRadius: '16px', border: '1px solid var(--panel-border)', padding: '1.25rem', marginBottom: '0.75rem' }}
+                      style={{ background: user.disabled ? 'rgba(30,20,5,0.45)' : 'rgba(15,23,42,0.4)', borderRadius: '16px', border: user.disabled ? '1px solid rgba(251,191,36,0.2)' : '1px solid var(--panel-border)', padding: '1.25rem', marginBottom: '0.75rem', opacity: user.disabled ? 0.82 : 1, transition: 'border-color 0.3s, background 0.3s' }}
                     >
                       {/* User info row */}
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ fontWeight: 600, fontSize: '1.05rem' }}>{user.displayName}</div>
-                          <div style={{ color: 'var(--primary)', fontSize: '0.85rem', marginTop: '0.15rem' }}>{user.username}</div>
+                          <div style={{ color: 'var(--primary)', fontSize: '0.85rem', marginTop: '0.15rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            {user.username}
+                            {user.disabled && <span style={{ background: 'rgba(251,191,36,0.15)', border: '1px solid rgba(251,191,36,0.3)', color: '#fbbf24', fontSize: '0.67rem', padding: '0.1rem 0.4rem', borderRadius: '4px', fontWeight: 700, letterSpacing: '0.05em' }}>DISABLED</span>}
+                          </div>
                           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginTop: '0.65rem' }}>
                             {user.groups.length === 0
                               ? <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>No group memberships found</span>
@@ -684,6 +745,13 @@ function App() {
                           updateUserEdit(user.dn, { showReset: !isOpen, resetInput: !isOpen ? generatePassword() : '' });
                         }} style={{ background: edit.showReset ? 'rgba(251,191,36,0.15)' : 'rgba(255,255,255,0.05)', border: edit.showReset ? '1px solid rgba(251,191,36,0.3)' : '1px solid rgba(255,255,255,0.08)', color: edit.showReset ? '#fbbf24' : 'var(--text-muted)', padding: '0.5rem 0.85rem', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.82rem', fontWeight: 600, transition: 'all 0.2s' }}>
                           <KeyRound size={13} /> Reset Password
+                        </button>
+                        <button type="button" onClick={() => handleToggleDisable(user)} disabled={disablingDn === user.dn}
+                          style={{ background: user.disabled ? 'rgba(16,185,129,0.12)' : 'rgba(251,191,36,0.1)', border: user.disabled ? '1px solid rgba(16,185,129,0.25)' : '1px solid rgba(251,191,36,0.25)', color: user.disabled ? 'var(--success)' : '#fbbf24', padding: '0.5rem 0.85rem', borderRadius: '8px', cursor: disablingDn === user.dn ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.82rem', fontWeight: 600, transition: 'all 0.2s', opacity: disablingDn === user.dn ? 0.6 : 1 }}>
+                          {disablingDn === user.dn
+                            ? <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1 }}><TerminalSquare size={13} /></motion.div>
+                            : user.disabled ? <><UserCheck size={13} /> Enable</> : <><UserX size={13} /> Disable</>
+                          }
                         </button>
                         <button type="button" onClick={() => {
                           if (confirmDeleteDn === user.dn) handleDeleteUser(user);
