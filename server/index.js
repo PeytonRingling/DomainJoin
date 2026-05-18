@@ -400,6 +400,9 @@ app.post('/api/users/all', async (req, res) => {
   if (!dcServer || !username || !password)
     return res.status(400).json({ error: 'Missing credentials' });
 
+  // ldapts can return multi-valued attributes as arrays; always coerce to string
+  const s = (v) => String(Array.isArray(v) ? v[0] : (v ?? ''));
+
   const client = createClient(dcServer);
   try {
     await client.bind(normalizeUsername(username), password);
@@ -410,14 +413,15 @@ app.post('/api/users/all', async (req, res) => {
       paged: { pageSize: 200 },
     });
     const users = searchEntries.map(e => {
-      const uac = parseInt(Array.isArray(e.userAccountControl) ? e.userAccountControl[0] : e.userAccountControl) || 0;
+      const uac = parseInt(s(e.userAccountControl)) || 0;
+      const displayName = s(e.displayName) || `${s(e.givenName)} ${s(e.sn)}`.trim() || s(e.cn);
       return {
         dn: e.dn,
-        displayName: e.displayName || `${e.givenName || ''} ${e.sn || ''}`.trim() || e.cn,
-        username: Array.isArray(e.sAMAccountName) ? e.sAMAccountName[0] : e.sAMAccountName,
+        displayName,
+        username: s(e.sAMAccountName),
         disabled: !!(uac & 2),
       };
-    }).sort((a, b) => (a.displayName || '').localeCompare(b.displayName || ''));
+    }).sort((a, b) => a.displayName.localeCompare(b.displayName));
     res.json({ success: true, users, total: users.length });
   } catch (err) {
     res.status(500).json({ error: err.message || 'Failed to fetch users' });
@@ -431,6 +435,8 @@ app.post('/api/groups/list', async (req, res) => {
   if (!dcServer || !username || !password)
     return res.status(400).json({ error: 'Missing credentials' });
 
+  const s = (v) => String(Array.isArray(v) ? v[0] : (v ?? ''));
+
   const client = createClient(dcServer);
   try {
     await client.bind(normalizeUsername(username), password);
@@ -440,19 +446,21 @@ app.post('/api/groups/list', async (req, res) => {
       attributes: ['dn', 'cn', 'description', 'groupType', 'member'],
       paged: { pageSize: 200 },
     });
-    const groups = searchEntries.map(e => {
-      const gt = parseInt(Array.isArray(e.groupType) ? e.groupType[0] : e.groupType) || 0;
-      const gtU = gt >>> 0;
-      const members = e.member ? (Array.isArray(e.member) ? e.member : [e.member]) : [];
-      return {
-        dn: e.dn,
-        cn: Array.isArray(e.cn) ? e.cn[0] : e.cn,
-        description: Array.isArray(e.description) ? e.description[0] : (e.description || ''),
-        memberCount: members.length,
-        isSecurity: !!(gtU & 0x80000000),
-        scope: (gtU & 0x00000002) ? 'Global' : (gtU & 0x00000004) ? 'Domain Local' : (gtU & 0x00000008) ? 'Universal' : 'Local',
-      };
-    }).sort((a, b) => (a.cn || '').localeCompare(b.cn || ''));
+    const groups = searchEntries
+      .filter(e => e.cn) // skip entries with no cn
+      .map(e => {
+        const gt = parseInt(s(e.groupType)) || 0;
+        const gtU = gt >>> 0;
+        const members = e.member ? (Array.isArray(e.member) ? e.member : [e.member]) : [];
+        return {
+          dn: e.dn,
+          cn: s(e.cn),
+          description: s(e.description),
+          memberCount: members.length,
+          isSecurity: !!(gtU & 0x80000000),
+          scope: (gtU & 0x00000002) ? 'Global' : (gtU & 0x00000004) ? 'Domain Local' : (gtU & 0x00000008) ? 'Universal' : 'Local',
+        };
+      }).sort((a, b) => a.cn.localeCompare(b.cn));
     res.json({ success: true, groups });
   } catch (err) {
     res.status(500).json({ error: err.message || 'Failed to fetch groups' });

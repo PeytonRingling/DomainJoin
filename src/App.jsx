@@ -44,6 +44,7 @@ function App() {
   const [groupsLoaded, setGroupsLoaded] = useState(false);
   const [expandedGroupDn, setExpandedGroupDn] = useState(null);
   const [groupMembers, setGroupMembers] = useState({});
+  const [groupSearch, setGroupSearch] = useState('');
 
   const dairyProducts = ['Cheddar', 'Gouda', 'Brie', 'Milk', 'Yogurt', 'Butter', 'Swiss', 'Provolone', 'Cream', 'Feta', 'Parmesan', 'Mozzarella', 'Ricotta', 'Havarti', 'PepperJack', 'Gruyere', 'Muenster', 'Colby'];
   const generatePassword = () => `${dairyProducts[Math.floor(Math.random() * dairyProducts.length)]}!${Math.floor(Math.random() * 9000) + 1000}`;
@@ -125,6 +126,7 @@ function App() {
     setGroupsLoaded(false);
     setExpandedGroupDn(null);
     setGroupMembers({});
+    setGroupSearch('');
     setListTruncated(false);
   };
 
@@ -222,8 +224,8 @@ function App() {
 
   const handleUserSearch = async (e) => {
     e.preventDefault();
-    if (!searchQuery.trim()) { handleListAllUsers(); return; }
-    setSearchLoading(true); setError(null); setListTruncated(false);
+    if (!searchQuery.trim()) return;
+    setSearchLoading(true); setError(null);
     try {
       const res = await fetch('/api/users/search', {
         method: 'POST',
@@ -756,38 +758,27 @@ function App() {
             {/* ── Manage Users tab ── */}
             {activeTab === 'manage' && (
               <div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1.5rem' }}>
-                  <form onSubmit={handleUserSearch} style={{ display: 'flex', gap: '0.75rem' }}>
-                    <div style={{ flex: 1, position: 'relative' }}>
-                      <input
-                        type="text"
-                        className="input-field"
-                        placeholder="Search by name or username..."
-                        value={searchQuery}
-                        onChange={e => setSearchQuery(e.target.value)}
-                      />
-                      <Search className="input-icon" size={18} style={{ top: '50%', transform: 'translateY(-50%)' }} />
-                    </div>
-                    <button type="submit" className="btn-primary" disabled={searchLoading} style={{ width: 'auto', padding: '0 1.25rem', flexShrink: 0 }}>
-                      {searchLoading ? <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1 }}><TerminalSquare size={18} /></motion.div> : 'Search'}
-                    </button>
-                  </form>
-                  <button type="button" onClick={handleListAllUsers} disabled={searchLoading} style={{ alignSelf: 'flex-start', background: 'transparent', border: 'none', color: 'var(--text-muted)', fontSize: '0.82rem', cursor: 'pointer', padding: 0, fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: '0.3rem', textDecoration: 'underline', textUnderlineOffset: '3px' }}>
-                    <Users size={13} /> Browse all users
+                <form onSubmit={handleUserSearch} style={{ display: 'flex', gap: '0.75rem', marginBottom: '1.5rem' }}>
+                  <div style={{ flex: 1, position: 'relative' }}>
+                    <input
+                      type="text"
+                      className="input-field"
+                      placeholder="Search by name or username..."
+                      value={searchQuery}
+                      onChange={e => setSearchQuery(e.target.value)}
+                    />
+                    <Search className="input-icon" size={18} style={{ top: '50%', transform: 'translateY(-50%)' }} />
+                  </div>
+                  <button type="submit" className="btn-primary" disabled={searchLoading} style={{ width: 'auto', padding: '0 1.25rem', flexShrink: 0 }}>
+                    {searchLoading ? <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1 }}><TerminalSquare size={18} /></motion.div> : 'Search'}
                   </button>
-                </div>
+                </form>
 
                 {error && (
                   <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} style={{ color: 'var(--error)', fontSize: '0.9rem', display: 'flex', alignItems: 'flex-start', gap: '0.5rem', marginBottom: '1.5rem', background: 'rgba(239, 68, 68, 0.1)', padding: '1rem', borderRadius: '10px', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
                     <AlertCircle size={18} style={{ flexShrink: 0, marginTop: '1px' }} />
                     <span style={{ wordBreak: 'break-word', lineHeight: 1.4 }}>{error}</span>
                   </motion.div>
-                )}
-
-                {listTruncated && (
-                  <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                    <AlertCircle size={13} /> Showing first 200 users — use search to narrow results.
-                  </div>
                 )}
 
                 <div style={{ maxHeight: '60vh', overflowY: 'auto', paddingRight: '0.2rem' }}>
@@ -1042,15 +1033,23 @@ function App() {
             {/* ── Groups tab ── */}
             {activeTab === 'groups' && (
               <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.85rem' }}>
                   <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
                     {groupsLoaded ? `${groupList.length} groups` : 'Browse AD groups and their members'}
                   </span>
-                  <button type="button" onClick={() => { handleLoadGroups(); setExpandedGroupDn(null); setGroupMembers({}); }} disabled={groupsLoading}
+                  <button type="button" onClick={() => { handleLoadGroups(); setExpandedGroupDn(null); setGroupMembers({}); setGroupSearch(''); }} disabled={groupsLoading}
                     style={{ background: 'rgba(56,189,248,0.1)', border: '1px solid rgba(56,189,248,0.25)', color: 'var(--primary)', padding: '0.4rem 0.85rem', borderRadius: '8px', cursor: groupsLoading ? 'not-allowed' : 'pointer', fontSize: '0.82rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.35rem', opacity: groupsLoading ? 0.7 : 1 }}>
                     {groupsLoading ? <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1 }}><TerminalSquare size={14} /></motion.div> : <><Search size={13} /> {groupsLoaded ? 'Refresh' : 'Load Groups'}</>}
                   </button>
                 </div>
+
+                {groupsLoaded && (
+                  <div style={{ position: 'relative', marginBottom: '0.85rem' }}>
+                    <input type="text" className="input-field" placeholder="Filter groups..." value={groupSearch} onChange={e => setGroupSearch(e.target.value)}
+                      style={{ padding: '0.6rem 1rem 0.6rem 2.4rem', fontSize: '0.88rem' }} />
+                    <Search style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} size={15} />
+                  </div>
+                )}
 
                 {error && (
                   <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} style={{ color: 'var(--error)', fontSize: '0.9rem', display: 'flex', alignItems: 'flex-start', gap: '0.5rem', marginBottom: '1rem', background: 'rgba(239,68,68,0.1)', padding: '1rem', borderRadius: '10px', border: '1px solid rgba(239,68,68,0.2)' }}>
@@ -1066,23 +1065,24 @@ function App() {
                 )}
 
                 {groupsLoaded && (
-                  <div style={{ maxHeight: '62vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.5rem', paddingRight: '0.25rem' }}>
-                    {groupList.map(group => {
+                  <div style={{ maxHeight: '58vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.5rem', paddingRight: '0.25rem' }}>
+                    {groupList.filter(g => !groupSearch || g.cn.toLowerCase().includes(groupSearch.toLowerCase()) || g.description.toLowerCase().includes(groupSearch.toLowerCase())).map(group => {
                       const isExpanded = expandedGroupDn === group.dn;
                       const mData = groupMembers[group.dn];
                       return (
-                        <div key={group.dn} style={{ background: 'rgba(15,23,42,0.4)', borderRadius: '12px', border: '1px solid var(--panel-border)', overflow: 'hidden' }}>
-                          <button type="button" onClick={() => handleExpandGroup(group)}
-                            style={{ width: '100%', background: 'transparent', border: 'none', padding: '0.85rem 1rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.75rem', textAlign: 'left', fontFamily: 'inherit', color: 'var(--text-main)' }}>
+                        <div key={group.dn} style={{ background: 'rgba(15,23,42,0.4)', borderRadius: '12px', border: '1px solid var(--panel-border)' }}>
+                          {/* clickable header row — div instead of button to avoid UA stylesheet issues */}
+                          <div role="button" tabIndex={0} onClick={() => handleExpandGroup(group)} onKeyDown={e => e.key === 'Enter' && handleExpandGroup(group)}
+                            style={{ padding: '0.85rem 1rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.75rem', borderRadius: isExpanded ? '12px 12px 0 0' : '12px', userSelect: 'none' }}>
                             <div style={{ flex: 1, minWidth: 0 }}>
-                              <div style={{ fontWeight: 600, fontSize: '0.95rem', display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                              <div style={{ fontWeight: 600, fontSize: '0.95rem', display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', color: 'var(--text-main)' }}>
                                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{group.cn}</span>
-                                <span style={{ background: group.isSecurity ? 'rgba(56,189,248,0.12)' : 'rgba(16,185,129,0.12)', border: group.isSecurity ? '1px solid rgba(56,189,248,0.25)' : '1px solid rgba(16,185,129,0.25)', color: group.isSecurity ? 'var(--primary)' : 'var(--success)', fontSize: '0.66rem', padding: '0.05rem 0.4rem', borderRadius: '4px', fontWeight: 700, flexShrink: 0 }}>
+                                <span style={{ background: group.isSecurity ? 'rgba(56,189,248,0.12)' : 'rgba(16,185,129,0.12)', border: group.isSecurity ? '1px solid rgba(56,189,248,0.25)' : '1px solid rgba(16,185,129,0.25)', color: group.isSecurity ? 'var(--primary)' : 'var(--success)', fontSize: '0.66rem', padding: '0.1rem 0.4rem', borderRadius: '4px', fontWeight: 700, flexShrink: 0 }}>
                                   {group.isSecurity ? 'Security' : 'Distribution'}
                                 </span>
                                 {group.scope && <span style={{ color: 'var(--text-muted)', fontSize: '0.72rem', fontWeight: 500, flexShrink: 0 }}>{group.scope}</span>}
                               </div>
-                              {group.description && <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginTop: '0.15rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{group.description}</div>}
+                              {group.description && <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginTop: '0.2rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{group.description}</div>}
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexShrink: 0 }}>
                               <span style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', padding: '0.2rem 0.6rem', borderRadius: '6px', fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 600, whiteSpace: 'nowrap' }}>
@@ -1090,7 +1090,7 @@ function App() {
                               </span>
                               <ChevronDown size={15} style={{ color: 'var(--text-muted)', transform: isExpanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s', flexShrink: 0 }} />
                             </div>
-                          </button>
+                          </div>
 
                           <AnimatePresence>
                           {isExpanded && (
@@ -1109,7 +1109,7 @@ function App() {
                                       <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', padding: '0.4rem 0.6rem', background: m.disabled ? 'rgba(30,20,5,0.4)' : 'rgba(255,255,255,0.03)', borderRadius: '8px', border: m.disabled ? '1px solid rgba(251,191,36,0.1)' : '1px solid transparent' }}>
                                         <User size={13} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
                                         <div style={{ flex: 1, minWidth: 0 }}>
-                                          <span style={{ fontSize: '0.88rem', fontWeight: 500 }}>{m.displayName}</span>
+                                          <span style={{ fontSize: '0.88rem', fontWeight: 500, color: 'var(--text-main)' }}>{m.displayName}</span>
                                           <span style={{ color: 'var(--text-muted)', fontSize: '0.78rem', marginLeft: '0.5rem' }}>{m.username}</span>
                                         </div>
                                         {m.disabled && <span style={{ background: 'rgba(251,191,36,0.15)', border: '1px solid rgba(251,191,36,0.3)', color: '#fbbf24', fontSize: '0.65rem', padding: '0.05rem 0.35rem', borderRadius: '3px', fontWeight: 700, flexShrink: 0 }}>DISABLED</span>}
