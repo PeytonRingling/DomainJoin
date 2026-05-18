@@ -1043,131 +1043,143 @@ function App() {
                             <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
                               style={{ overflow: 'hidden', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
                               <div style={{ padding: '0.75rem 1rem' }}>
-                                {mData?.loading ? (
-                                  <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '0.75rem', fontSize: '0.85rem' }}>Loading members...</div>
-                                ) : mData?.error ? (
-                                  <div style={{ color: 'var(--error)', fontSize: '0.85rem' }}>{mData.error}</div>
-                                ) : !mData || mData.members.length === 0 ? (
-                                  <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>No members found.</div>
-                                ) : (
-                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', maxHeight: '320px', overflowY: 'auto' }}>
-                                    {mData.members.map(m => {
-                                      const rKey = `${group.dn}|${m.dn}`;
-                                      const isRemoving = removingMemberKey === rKey;
-                                      const isMemberExpanded = expandedGroupMemberKey === rKey;
-                                      const fullUser = allUsers.find(u => u.dn === m.dn) || { dn: m.dn, displayName: m.displayName, username: m.username, disabled: m.disabled, groups: [] };
-                                      const edit = getUserEdit(m.dn);
-                                      const isSaving = savingDn === m.dn;
-                                      const isSaved = savedDn === m.dn;
-                                      return (
-                                        <div key={m.dn || m.username} style={{ borderRadius: '8px', border: m.disabled ? '1px solid rgba(251,191,36,0.2)' : '1px solid rgba(255,255,255,0.04)', overflow: 'hidden' }}>
-                                          {/* Clickable header */}
-                                          <div role="button" tabIndex={0}
-                                            onClick={() => { setExpandedGroupMemberKey(isMemberExpanded ? null : rKey); if (!isMemberExpanded) setConfirmDeleteDn(null); }}
-                                            onKeyDown={e => e.key === 'Enter' && setExpandedGroupMemberKey(isMemberExpanded ? null : rKey)}
-                                            style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', padding: '0.4rem 0.6rem', background: m.disabled ? 'rgba(30,20,5,0.45)' : 'rgba(255,255,255,0.03)', cursor: 'pointer', userSelect: 'none', opacity: m.disabled ? 0.88 : 1 }}>
-                                            <User size={13} style={{ flexShrink: 0, color: m.disabled ? '#fbbf24' : 'var(--text-muted)' }} />
-                                            <div style={{ flex: 1, minWidth: 0 }}>
-                                              <span style={{ fontSize: '0.88rem', fontWeight: 500, color: 'var(--text-main)' }}>{m.displayName}</span>
-                                              <span style={{ color: 'var(--primary)', fontSize: '0.78rem', marginLeft: '0.5rem' }}>{m.username}</span>
-                                              {m.disabled && <span style={{ background: 'rgba(251,191,36,0.15)', border: '1px solid rgba(251,191,36,0.3)', color: '#fbbf24', fontSize: '0.65rem', padding: '0.05rem 0.35rem', borderRadius: '3px', fontWeight: 700, marginLeft: '0.5rem' }}>DISABLED</span>}
-                                            </div>
-                                            <ChevronDown size={12} style={{ color: 'var(--text-muted)', transform: isMemberExpanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s', flexShrink: 0 }} />
-                                          </div>
-
-                                          {/* Management panel */}
-                                          <AnimatePresence>
-                                          {isMemberExpanded && (
-                                            <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
-                                              style={{ overflow: 'hidden', background: m.disabled ? 'rgba(30,20,5,0.3)' : 'rgba(255,255,255,0.02)', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
-                                              <div style={{ padding: '0.65rem 0.75rem' }}>
-                                                {/* Current groups */}
-                                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem', marginBottom: '0.65rem' }}>
-                                                  {fullUser.groups.length === 0
-                                                    ? <span style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>{allUsersLoaded ? 'No group memberships' : 'Load Users tab to see all groups'}</span>
-                                                    : fullUser.groups.map(g => <div key={g} style={{ background: 'rgba(56,189,248,0.08)', border: '1px solid rgba(56,189,248,0.2)', color: 'var(--primary)', fontSize: '0.72rem', padding: '0.15rem 0.45rem', borderRadius: '5px', fontWeight: 500 }}>{g}</div>)
-                                                  }
-                                                </div>
-                                                {/* Action buttons */}
-                                                <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
-                                                  <button type="button" onClick={() => togglePicker(fullUser)}
-                                                    style={{ background: edit.showPicker ? 'rgba(56,189,248,0.2)' : 'rgba(255,255,255,0.05)', border: edit.showPicker ? '1px solid rgba(56,189,248,0.3)' : '1px solid rgba(255,255,255,0.08)', color: edit.showPicker ? 'var(--primary)' : 'var(--text-muted)', padding: '0.4rem 0.7rem', borderRadius: '7px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.78rem', fontWeight: 600 }}>
-                                                    <Tags size={12} /> Edit Groups
-                                                  </button>
-                                                  <button type="button" onClick={() => handleToggleDisable(fullUser)} disabled={disablingDn === m.dn}
-                                                    style={{ background: m.disabled ? 'rgba(16,185,129,0.12)' : 'rgba(251,191,36,0.1)', border: m.disabled ? '1px solid rgba(16,185,129,0.25)' : '1px solid rgba(251,191,36,0.25)', color: m.disabled ? 'var(--success)' : '#fbbf24', padding: '0.4rem 0.7rem', borderRadius: '7px', cursor: disablingDn === m.dn ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.78rem', fontWeight: 600, opacity: disablingDn === m.dn ? 0.6 : 1 }}>
-                                                    {disablingDn === m.dn ? <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1 }}><TerminalSquare size={12} /></motion.div>
-                                                      : m.disabled ? <><UserCheck size={12} /> Enable</> : <><UserX size={12} /> Disable</>}
-                                                  </button>
-                                                  <button type="button" onClick={() => { if (confirmDeleteDn === m.dn) handleDeleteUser(fullUser); else { setConfirmDeleteDn(m.dn); setTimeout(() => setConfirmDeleteDn(d => d === m.dn ? null : d), 4000); } }}
-                                                    style={{ marginLeft: 'auto', background: confirmDeleteDn === m.dn ? 'rgba(239,68,68,0.2)' : 'rgba(255,255,255,0.05)', border: confirmDeleteDn === m.dn ? '1px solid rgba(239,68,68,0.4)' : '1px solid rgba(255,255,255,0.08)', color: 'var(--error)', padding: '0.4rem 0.7rem', borderRadius: '7px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.78rem', fontWeight: 600 }}>
-                                                    <Trash2 size={12} /> {confirmDeleteDn === m.dn ? 'Confirm?' : 'Delete'}
-                                                  </button>
-                                                </div>
-                                                {/* Remove from this group */}
-                                                <button type="button" disabled={isRemoving} onClick={() => handleRemoveGroupMember(group.dn, group.cn, m.dn)}
-                                                  style={{ marginTop: '0.4rem', width: '100%', background: 'rgba(239,68,68,0.07)', border: '1px solid rgba(239,68,68,0.18)', color: 'var(--error)', padding: '0.35rem 0.6rem', borderRadius: '7px', cursor: isRemoving ? 'not-allowed' : 'pointer', fontSize: '0.78rem', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.3rem', opacity: isRemoving ? 0.6 : 1 }}>
-                                                  {isRemoving ? <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1 }}><TerminalSquare size={12} /></motion.div> : <><X size={12} /> Remove from {group.cn}</>}
-                                                </button>
-                                                {/* Group picker */}
-                                                <AnimatePresence>
-                                                {edit.showPicker && (
-                                                  <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
-                                                    style={{ overflow: 'hidden', marginTop: '0.6rem', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
-                                                    <div style={{ paddingTop: '0.6rem' }}>
-                                                      {adGroups.length > 0 && (
-                                                        <input type="text" className="input-field" placeholder="Search groups…" value={edit.groupSearch}
-                                                          onChange={e => updateUserEdit(m.dn, { groupSearch: e.target.value })}
-                                                          style={{ marginBottom: '0.5rem', padding: '0.5rem 0.85rem', fontSize: '0.85rem' }} />
-                                                      )}
-                                                      <div style={{ maxHeight: '130px', overflowY: 'auto', background: 'rgba(15,23,42,0.6)', borderRadius: '10px', border: '1px solid var(--panel-border)', padding: '0.4rem' }}>
-                                                        {adGroups.length === 0 ? (
-                                                          <div style={{ padding: '0.75rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>No groups discovered.</div>
-                                                        ) : adGroups.filter(g => g.toLowerCase().includes(edit.groupSearch.toLowerCase())).map(g => {
-                                                          const wasMember = fullUser.groups.includes(g);
-                                                          const isSelected = (edit.selected ?? fullUser.groups).includes(g);
-                                                          const isToAdd = !wasMember && isSelected;
-                                                          const isToRemove = wasMember && !isSelected;
-                                                          return (
-                                                            <label key={g} style={{ display: 'flex', alignItems: 'center', padding: '0.4rem 0.65rem', cursor: 'pointer', background: isToRemove ? 'rgba(239,68,68,0.08)' : isToAdd ? 'rgba(56,189,248,0.15)' : isSelected ? 'rgba(56,189,248,0.08)' : 'transparent', borderRadius: '7px', border: isToRemove ? '1px solid rgba(239,68,68,0.25)' : isToAdd ? '1px solid rgba(56,189,248,0.3)' : '1px solid transparent', marginBottom: '3px' }}>
-                                                              <input type="checkbox" checked={isSelected}
-                                                                onChange={e => { const cur = edit.selected ?? [...fullUser.groups]; updateUserEdit(m.dn, { selected: e.target.checked ? [...cur, g] : cur.filter(x => x !== g) }); }}
-                                                                style={{ marginRight: '0.6rem', accentColor: 'var(--primary)', width: '14px', height: '14px' }} />
-                                                              <span style={{ fontSize: '0.85rem', color: isSelected || isToAdd ? '#fff' : 'var(--text-main)', fontWeight: isSelected ? 500 : 400 }}>{g}</span>
-                                                              {isToAdd && <span style={{ marginLeft: 'auto', fontSize: '0.68rem', color: 'var(--primary)', fontWeight: 700 }}>ADD</span>}
-                                                              {isToRemove && <span style={{ marginLeft: 'auto', fontSize: '0.68rem', color: 'var(--error)', fontWeight: 700 }}>REMOVE</span>}
-                                                            </label>
-                                                          );
-                                                        })}
-                                                      </div>
-                                                      {(() => {
-                                                        const sel = edit.selected ?? fullUser.groups;
-                                                        const toAdd = sel.filter(g => !fullUser.groups.includes(g));
-                                                        const toRemove = fullUser.groups.filter(g => !sel.includes(g));
-                                                        if (!toAdd.length && !toRemove.length) return null;
-                                                        const label = [toAdd.length ? `Add ${toAdd.length}` : null, toRemove.length ? `Remove ${toRemove.length}` : null].filter(Boolean).join(', ');
-                                                        return (
-                                                          <button type="button" onClick={() => handleSaveGroups(fullUser)} disabled={isSaving}
-                                                            style={{ marginTop: '0.5rem', width: '100%', background: isSaved ? 'rgba(16,185,129,0.15)' : 'linear-gradient(135deg,#38bdf8,#0ea5e9)', border: isSaved ? '1px solid rgba(16,185,129,0.3)' : 'none', color: isSaved ? 'var(--success)' : '#fff', padding: '0.6rem', borderRadius: '8px', cursor: isSaving ? 'not-allowed' : 'pointer', fontFamily: 'inherit', fontSize: '0.85rem', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.35rem', opacity: isSaving ? 0.7 : 1 }}>
-                                                            {isSaving ? <><motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1 }}><TerminalSquare size={14} /></motion.div> Saving…</>
-                                                              : isSaved ? <><CheckCircle2 size={14} /> Saved!</>
-                                                              : `Save changes — ${label}`}
-                                                          </button>
-                                                        );
-                                                      })()}
-                                                    </div>
-                                                  </motion.div>
-                                                )}
-                                                </AnimatePresence>
+                                {mData?.loading && <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '0.75rem', fontSize: '0.85rem' }}>Loading members...</div>}
+                                {mData?.error && <div style={{ color: 'var(--error)', fontSize: '0.85rem' }}>{mData.error}</div>}
+                                {(!mData || mData.members.length === 0) && !mData?.loading && !mData?.error && <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>No members found.</div>}
+                                {mData?.members?.length > 0 && (() => {
+                                  const selMember = expandedGroupMemberKey
+                                    ? mData.members.find(m => `${group.dn}|${m.dn}` === expandedGroupMemberKey)
+                                    : null;
+                                  const selFull = selMember
+                                    ? (allUsers.find(u => u.dn === selMember.dn) || { dn: selMember.dn, displayName: selMember.displayName, username: selMember.username, disabled: selMember.disabled, groups: [] })
+                                    : null;
+                                  const selEdit = selMember ? getUserEdit(selMember.dn) : null;
+                                  const selRKey = selMember ? `${group.dn}|${selMember.dn}` : null;
+                                  const isRemoving = selRKey ? removingMemberKey === selRKey : false;
+                                  const isSaving = selMember ? savingDn === selMember.dn : false;
+                                  const isSaved  = selMember ? savedDn  === selMember.dn : false;
+                                  return (
+                                    <>
+                                      {/* Compact scrollable member list — headers only */}
+                                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', maxHeight: '200px', overflowY: 'auto' }}>
+                                        {mData.members.map(m => {
+                                          const rKey = `${group.dn}|${m.dn}`;
+                                          const isSelected = expandedGroupMemberKey === rKey;
+                                          return (
+                                            <div role="button" tabIndex={0} key={m.dn || m.username}
+                                              onClick={() => { setExpandedGroupMemberKey(isSelected ? null : rKey); if (!isSelected) setConfirmDeleteDn(null); }}
+                                              onKeyDown={e => e.key === 'Enter' && setExpandedGroupMemberKey(isSelected ? null : rKey)}
+                                              style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.38rem 0.6rem', borderRadius: '7px', cursor: 'pointer', userSelect: 'none', background: isSelected ? 'rgba(56,189,248,0.1)' : m.disabled ? 'rgba(30,20,5,0.35)' : 'rgba(255,255,255,0.03)', border: isSelected ? '1px solid rgba(56,189,248,0.25)' : m.disabled ? '1px solid rgba(251,191,36,0.15)' : '1px solid transparent', opacity: m.disabled ? 0.88 : 1 }}>
+                                              <User size={13} style={{ flexShrink: 0, color: m.disabled ? '#fbbf24' : isSelected ? 'var(--primary)' : 'var(--text-muted)' }} />
+                                              <div style={{ flex: 1, minWidth: 0 }}>
+                                                <span style={{ fontSize: '0.88rem', fontWeight: isSelected ? 600 : 500, color: isSelected ? 'var(--text-main)' : 'var(--text-main)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.displayName}</span>
+                                                <span style={{ color: isSelected ? 'var(--primary)' : 'var(--text-muted)', fontSize: '0.78rem', marginLeft: '0.45rem' }}>{m.username}</span>
+                                                {m.disabled && <span style={{ background: 'rgba(251,191,36,0.15)', border: '1px solid rgba(251,191,36,0.3)', color: '#fbbf24', fontSize: '0.62rem', padding: '0.03rem 0.3rem', borderRadius: '3px', fontWeight: 700, marginLeft: '0.45rem' }}>DISABLED</span>}
                                               </div>
-                                            </motion.div>
-                                          )}
-                                          </AnimatePresence>
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                )}
+                                              <ChevronDown size={11} style={{ color: 'var(--text-muted)', transform: isSelected ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s', flexShrink: 0 }} />
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+
+                                      {/* Management panel — rendered BELOW the list, outside the scroll area */}
+                                      <AnimatePresence>
+                                      {selMember && selFull && selEdit && (
+                                        <motion.div key={selRKey} initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
+                                          style={{ overflow: 'hidden', marginTop: '0.5rem', borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+                                          <div style={{ paddingTop: '0.75rem' }}>
+                                            {/* Selected member banner */}
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.65rem', padding: '0.4rem 0.65rem', background: selMember.disabled ? 'rgba(30,20,5,0.4)' : 'rgba(56,189,248,0.07)', borderRadius: '8px', border: selMember.disabled ? '1px solid rgba(251,191,36,0.2)' : '1px solid rgba(56,189,248,0.18)' }}>
+                                              <User size={13} style={{ flexShrink: 0, color: selMember.disabled ? '#fbbf24' : 'var(--primary)' }} />
+                                              <span style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-main)' }}>{selMember.displayName}</span>
+                                              <span style={{ color: 'var(--primary)', fontSize: '0.8rem' }}>{selMember.username}</span>
+                                              {selMember.disabled && <span style={{ background: 'rgba(251,191,36,0.15)', border: '1px solid rgba(251,191,36,0.3)', color: '#fbbf24', fontSize: '0.65rem', padding: '0.05rem 0.35rem', borderRadius: '3px', fontWeight: 700 }}>DISABLED</span>}
+                                            </div>
+                                            {/* Group chips */}
+                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', marginBottom: '0.7rem' }}>
+                                              {selFull.groups.length === 0
+                                                ? <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>{allUsersLoaded ? 'No group memberships' : 'Load Users tab to see all groups'}</span>
+                                                : selFull.groups.map(g => <div key={g} style={{ background: 'rgba(56,189,248,0.08)', border: '1px solid rgba(56,189,248,0.2)', color: 'var(--primary)', fontSize: '0.75rem', padding: '0.2rem 0.5rem', borderRadius: '6px', fontWeight: 500 }}>{g}</div>)
+                                              }
+                                            </div>
+                                            {/* Action buttons */}
+                                            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                                              <button type="button" onClick={() => togglePicker(selFull)}
+                                                style={{ background: selEdit.showPicker ? 'rgba(56,189,248,0.2)' : 'rgba(255,255,255,0.05)', border: selEdit.showPicker ? '1px solid rgba(56,189,248,0.3)' : '1px solid rgba(255,255,255,0.08)', color: selEdit.showPicker ? 'var(--primary)' : 'var(--text-muted)', padding: '0.5rem 0.85rem', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.82rem', fontWeight: 600 }}>
+                                                <Tags size={13} /> Edit Groups
+                                              </button>
+                                              <button type="button" onClick={() => handleToggleDisable(selFull)} disabled={disablingDn === selMember.dn}
+                                                style={{ background: selMember.disabled ? 'rgba(16,185,129,0.12)' : 'rgba(251,191,36,0.1)', border: selMember.disabled ? '1px solid rgba(16,185,129,0.25)' : '1px solid rgba(251,191,36,0.25)', color: selMember.disabled ? 'var(--success)' : '#fbbf24', padding: '0.5rem 0.85rem', borderRadius: '8px', cursor: disablingDn === selMember.dn ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.82rem', fontWeight: 600, opacity: disablingDn === selMember.dn ? 0.6 : 1 }}>
+                                                {disablingDn === selMember.dn ? <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1 }}><TerminalSquare size={13} /></motion.div>
+                                                  : selMember.disabled ? <><UserCheck size={13} /> Enable</> : <><UserX size={13} /> Disable</>}
+                                              </button>
+                                              <button type="button" onClick={() => { if (confirmDeleteDn === selMember.dn) handleDeleteUser(selFull); else { setConfirmDeleteDn(selMember.dn); setTimeout(() => setConfirmDeleteDn(d => d === selMember.dn ? null : d), 4000); } }}
+                                                style={{ marginLeft: 'auto', background: confirmDeleteDn === selMember.dn ? 'rgba(239,68,68,0.2)' : 'rgba(255,255,255,0.05)', border: confirmDeleteDn === selMember.dn ? '1px solid rgba(239,68,68,0.4)' : '1px solid rgba(255,255,255,0.08)', color: 'var(--error)', padding: '0.5rem 0.85rem', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.82rem', fontWeight: 600 }}>
+                                                <Trash2 size={13} /> {confirmDeleteDn === selMember.dn ? 'Confirm?' : 'Delete'}
+                                              </button>
+                                            </div>
+                                            {/* Remove from this group */}
+                                            <button type="button" disabled={isRemoving} onClick={() => handleRemoveGroupMember(group.dn, group.cn, selMember.dn)}
+                                              style={{ marginTop: '0.5rem', width: '100%', background: 'rgba(239,68,68,0.07)', border: '1px solid rgba(239,68,68,0.18)', color: 'var(--error)', padding: '0.5rem 0.6rem', borderRadius: '8px', cursor: isRemoving ? 'not-allowed' : 'pointer', fontSize: '0.82rem', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.35rem', opacity: isRemoving ? 0.6 : 1 }}>
+                                              {isRemoving ? <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1 }}><TerminalSquare size={13} /></motion.div> : <><X size={13} /> Remove from {group.cn}</>}
+                                            </button>
+                                            {/* Group picker */}
+                                            <AnimatePresence>
+                                            {selEdit.showPicker && (
+                                              <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
+                                                style={{ overflow: 'hidden', marginTop: '0.75rem', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+                                                <div style={{ paddingTop: '0.75rem' }}>
+                                                  {adGroups.length > 0 && (
+                                                    <input type="text" className="input-field" placeholder="Search groups…" value={selEdit.groupSearch}
+                                                      onChange={e => updateUserEdit(selMember.dn, { groupSearch: e.target.value })}
+                                                      style={{ marginBottom: '0.65rem', padding: '0.6rem 1rem', fontSize: '0.9rem' }} />
+                                                  )}
+                                                  <div style={{ maxHeight: '150px', overflowY: 'auto', background: 'rgba(15,23,42,0.6)', borderRadius: '10px', border: '1px solid var(--panel-border)', padding: '0.5rem' }}>
+                                                    {adGroups.length === 0 ? (
+                                                      <div style={{ padding: '0.75rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>No groups discovered.</div>
+                                                    ) : adGroups.filter(g => g.toLowerCase().includes(selEdit.groupSearch.toLowerCase())).map(g => {
+                                                      const wasMember = selFull.groups.includes(g);
+                                                      const isSelected2 = (selEdit.selected ?? selFull.groups).includes(g);
+                                                      const isToAdd = !wasMember && isSelected2;
+                                                      const isToRemove = wasMember && !isSelected2;
+                                                      return (
+                                                        <label key={g} style={{ display: 'flex', alignItems: 'center', padding: '0.45rem 0.75rem', cursor: 'pointer', background: isToRemove ? 'rgba(239,68,68,0.08)' : isToAdd ? 'rgba(56,189,248,0.15)' : isSelected2 ? 'rgba(56,189,248,0.08)' : 'transparent', borderRadius: '7px', border: isToRemove ? '1px solid rgba(239,68,68,0.25)' : isToAdd ? '1px solid rgba(56,189,248,0.3)' : '1px solid transparent', marginBottom: '3px' }}>
+                                                          <input type="checkbox" checked={isSelected2}
+                                                            onChange={e => { const cur = selEdit.selected ?? [...selFull.groups]; updateUserEdit(selMember.dn, { selected: e.target.checked ? [...cur, g] : cur.filter(x => x !== g) }); }}
+                                                            style={{ marginRight: '0.7rem', accentColor: 'var(--primary)', width: '15px', height: '15px' }} />
+                                                          <span style={{ fontSize: '0.88rem', color: isSelected2 || isToAdd ? '#fff' : 'var(--text-main)', fontWeight: isSelected2 ? 500 : 400 }}>{g}</span>
+                                                          {isToAdd && <span style={{ marginLeft: 'auto', fontSize: '0.7rem', color: 'var(--primary)', fontWeight: 700 }}>ADD</span>}
+                                                          {isToRemove && <span style={{ marginLeft: 'auto', fontSize: '0.7rem', color: 'var(--error)', fontWeight: 700 }}>REMOVE</span>}
+                                                        </label>
+                                                      );
+                                                    })}
+                                                  </div>
+                                                  {(() => {
+                                                    const sel = selEdit.selected ?? selFull.groups;
+                                                    const toAdd = sel.filter(g => !selFull.groups.includes(g));
+                                                    const toRemove = selFull.groups.filter(g => !sel.includes(g));
+                                                    if (!toAdd.length && !toRemove.length) return null;
+                                                    const label = [toAdd.length ? `Add ${toAdd.length}` : null, toRemove.length ? `Remove ${toRemove.length}` : null].filter(Boolean).join(', ');
+                                                    return (
+                                                      <button type="button" onClick={() => handleSaveGroups(selFull)} disabled={isSaving}
+                                                        style={{ marginTop: '0.65rem', width: '100%', background: isSaved ? 'rgba(16,185,129,0.15)' : 'linear-gradient(135deg,#38bdf8,#0ea5e9)', border: isSaved ? '1px solid rgba(16,185,129,0.3)' : 'none', color: isSaved ? 'var(--success)' : '#fff', padding: '0.7rem', borderRadius: '10px', cursor: isSaving ? 'not-allowed' : 'pointer', fontFamily: 'inherit', fontSize: '0.9rem', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem', opacity: isSaving ? 0.7 : 1 }}>
+                                                        {isSaving ? <><motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1 }}><TerminalSquare size={15} /></motion.div> Saving…</>
+                                                          : isSaved ? <><CheckCircle2 size={15} /> Saved!</>
+                                                          : `Save changes — ${label}`}
+                                                      </button>
+                                                    );
+                                                  })()}
+                                                </div>
+                                              </motion.div>
+                                            )}
+                                            </AnimatePresence>
+                                          </div>
+                                        </motion.div>
+                                      )}
+                                      </AnimatePresence>
+                                    </>
+                                  );
+                                })()}
                               </div>
                             </motion.div>
                           )}
