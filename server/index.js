@@ -395,6 +395,104 @@ app.post('/api/users/addgroups', async (req, res) => {
   }
 });
 
+app.post('/api/users/all', async (req, res) => {
+  const { dcServer, username, password } = req.body;
+  if (!dcServer || !username || !password)
+    return res.status(400).json({ error: 'Missing credentials' });
+
+  const client = createClient(dcServer);
+  try {
+    await client.bind(normalizeUsername(username), password);
+    const { searchEntries } = await client.search(BASE_DN, {
+      filter: '(&(objectClass=user)(objectCategory=person))',
+      scope: 'sub',
+      attributes: ['dn', 'cn', 'sAMAccountName', 'displayName', 'givenName', 'sn', 'userAccountControl'],
+      paged: { pageSize: 200 },
+    });
+    const users = searchEntries.map(e => {
+      const uac = parseInt(Array.isArray(e.userAccountControl) ? e.userAccountControl[0] : e.userAccountControl) || 0;
+      return {
+        dn: e.dn,
+        displayName: e.displayName || `${e.givenName || ''} ${e.sn || ''}`.trim() || e.cn,
+        username: Array.isArray(e.sAMAccountName) ? e.sAMAccountName[0] : e.sAMAccountName,
+        disabled: !!(uac & 2),
+      };
+    }).sort((a, b) => (a.displayName || '').localeCompare(b.displayName || ''));
+    res.json({ success: true, users, total: users.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to fetch users' });
+  } finally {
+    await client.unbind().catch(() => {});
+  }
+});
+
+app.post('/api/groups/list', async (req, res) => {
+  const { dcServer, username, password } = req.body;
+  if (!dcServer || !username || !password)
+    return res.status(400).json({ error: 'Missing credentials' });
+
+  const client = createClient(dcServer);
+  try {
+    await client.bind(normalizeUsername(username), password);
+    const { searchEntries } = await client.search(BASE_DN, {
+      filter: '(objectClass=group)',
+      scope: 'sub',
+      attributes: ['dn', 'cn', 'description', 'groupType', 'member'],
+      paged: { pageSize: 200 },
+    });
+    const groups = searchEntries.map(e => {
+      const gt = parseInt(Array.isArray(e.groupType) ? e.groupType[0] : e.groupType) || 0;
+      const gtU = gt >>> 0;
+      const members = e.member ? (Array.isArray(e.member) ? e.member : [e.member]) : [];
+      return {
+        dn: e.dn,
+        cn: Array.isArray(e.cn) ? e.cn[0] : e.cn,
+        description: Array.isArray(e.description) ? e.description[0] : (e.description || ''),
+        memberCount: members.length,
+        isSecurity: !!(gtU & 0x80000000),
+        scope: (gtU & 0x00000002) ? 'Global' : (gtU & 0x00000004) ? 'Domain Local' : (gtU & 0x00000008) ? 'Universal' : 'Local',
+      };
+    }).sort((a, b) => (a.cn || '').localeCompare(b.cn || ''));
+    res.json({ success: true, groups });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to fetch groups' });
+  } finally {
+    await client.unbind().catch(() => {});
+  }
+});
+
+app.post('/api/groups/members', async (req, res) => {
+  const { dcServer, username, password, groupDn } = req.body;
+  if (!dcServer || !username || !password)
+    return res.status(400).json({ error: 'Missing credentials' });
+  if (!groupDn)
+    return res.status(400).json({ error: 'Missing group DN' });
+
+  const client = createClient(dcServer);
+  try {
+    await client.bind(normalizeUsername(username), password);
+    const { searchEntries } = await client.search(BASE_DN, {
+      filter: `(memberOf=${escapeLdapFilter(groupDn)})`,
+      scope: 'sub',
+      attributes: ['cn', 'sAMAccountName', 'displayName', 'userAccountControl'],
+      paged: { pageSize: 200 },
+    });
+    const members = searchEntries.map(e => {
+      const uac = parseInt(Array.isArray(e.userAccountControl) ? e.userAccountControl[0] : e.userAccountControl) || 0;
+      return {
+        displayName: (Array.isArray(e.displayName) ? e.displayName[0] : e.displayName) || (Array.isArray(e.cn) ? e.cn[0] : e.cn),
+        username: Array.isArray(e.sAMAccountName) ? e.sAMAccountName[0] : e.sAMAccountName,
+        disabled: !!(uac & 2),
+      };
+    }).sort((a, b) => (a.displayName || '').localeCompare(b.displayName || ''));
+    res.json({ success: true, members });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to fetch group members' });
+  } finally {
+    await client.unbind().catch(() => {});
+  }
+});
+
 app.post('/api/users/setstatus', async (req, res) => {
   const { dcServer, username, password, userDn, disabled } = req.body;
   if (!dcServer || !username || !password)

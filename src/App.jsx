@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Shield, Server, Lock, User, TerminalSquare, AlertCircle, CheckCircle2, Tags, X, Plus, FolderTree, LogOut, Download, ClipboardCopy, Search, UserCog, KeyRound, Trash2, UserX, UserCheck, Users } from 'lucide-react';
+import { Shield, Server, Lock, User, TerminalSquare, AlertCircle, CheckCircle2, Tags, X, Plus, FolderTree, LogOut, Download, ClipboardCopy, Search, UserCog, KeyRound, Trash2, UserX, UserCheck, Users, Layers, ChevronDown } from 'lucide-react';
 import './index.css';
 
 function App() {
@@ -30,6 +30,20 @@ function App() {
   const [resettingDn, setResettingDn] = useState(null);
   const [disablingDn, setDisablingDn] = useState(null);
   const [listTruncated, setListTruncated] = useState(false);
+
+  // All Users tab
+  const ALL_USERS_PAGE_SIZE = 200;
+  const [allUsers, setAllUsers] = useState([]);
+  const [allUsersPage, setAllUsersPage] = useState(0);
+  const [allUsersLoading, setAllUsersLoading] = useState(false);
+  const [allUsersLoaded, setAllUsersLoaded] = useState(false);
+
+  // Groups tab
+  const [groupList, setGroupList] = useState([]);
+  const [groupsLoading, setGroupsLoading] = useState(false);
+  const [groupsLoaded, setGroupsLoaded] = useState(false);
+  const [expandedGroupDn, setExpandedGroupDn] = useState(null);
+  const [groupMembers, setGroupMembers] = useState({});
 
   const dairyProducts = ['Cheddar', 'Gouda', 'Brie', 'Milk', 'Yogurt', 'Butter', 'Swiss', 'Provolone', 'Cream', 'Feta', 'Parmesan', 'Mozzarella', 'Ricotta', 'Havarti', 'PepperJack', 'Gruyere', 'Muenster', 'Colby'];
   const generatePassword = () => `${dairyProducts[Math.floor(Math.random() * dairyProducts.length)]}!${Math.floor(Math.random() * 9000) + 1000}`;
@@ -104,6 +118,14 @@ function App() {
     setSearchResults([]);
     setUserEdits({});
     setConfirmDeleteDn(null);
+    setAllUsers([]);
+    setAllUsersPage(0);
+    setAllUsersLoaded(false);
+    setGroupList([]);
+    setGroupsLoaded(false);
+    setExpandedGroupDn(null);
+    setGroupMembers({});
+    setListTruncated(false);
   };
 
   const handleBulkCreate = async (e) => {
@@ -244,6 +266,74 @@ function App() {
     }
   };
 
+  const handleLoadAllUsers = async () => {
+    setAllUsersLoading(true); setError(null);
+    try {
+      const res = await fetch('/api/users/all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(loginForm),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setAllUsers(data.users);
+        setAllUsersPage(0);
+        setAllUsersLoaded(true);
+      } else {
+        setError(data.error || 'Failed to load users');
+      }
+    } catch {
+      setError('Failed to reach backend server.');
+    } finally {
+      setAllUsersLoading(false);
+    }
+  };
+
+  const handleLoadGroups = async () => {
+    setGroupsLoading(true); setError(null);
+    try {
+      const res = await fetch('/api/groups/list', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(loginForm),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setGroupList(data.groups);
+        setGroupsLoaded(true);
+      } else {
+        setError(data.error || 'Failed to load groups');
+      }
+    } catch {
+      setError('Failed to reach backend server.');
+    } finally {
+      setGroupsLoading(false);
+    }
+  };
+
+  const handleExpandGroup = async (group) => {
+    if (expandedGroupDn === group.dn) { setExpandedGroupDn(null); return; }
+    setExpandedGroupDn(group.dn);
+    if (groupMembers[group.dn]) return;
+    setGroupMembers(prev => ({ ...prev, [group.dn]: { loading: true, members: [] } }));
+    try {
+      const res = await fetch('/api/groups/members', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...loginForm, groupDn: group.dn }),
+      });
+      const data = await res.json();
+      setGroupMembers(prev => ({
+        ...prev,
+        [group.dn]: data.success
+          ? { loading: false, members: data.members }
+          : { loading: false, members: [], error: data.error || 'Failed to load members' },
+      }));
+    } catch {
+      setGroupMembers(prev => ({ ...prev, [group.dn]: { loading: false, members: [], error: 'Failed to reach backend server.' } }));
+    }
+  };
+
   const handleSaveGroups = async (user) => {
     const edit = getUserEdit(user.dn);
     if (!edit.selected) return;
@@ -377,13 +467,13 @@ function App() {
     if (source) updateRow(targetId, 'groups', [...source.groups]);
   };
 
-  const tabBtn = (tab, label, Icon) => (
+  const tabBtn = (tab, label, Icon, onSwitch) => (
     <button
       type="button"
-      onClick={() => { setActiveTab(tab); setError(null); setSuccess(null); }}
-      style={{ flex: 1, padding: '0.6rem', borderRadius: '10px', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: '0.9rem', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem', transition: 'all 0.2s', background: activeTab === tab ? 'rgba(56,189,248,0.15)' : 'transparent', color: activeTab === tab ? 'var(--primary)' : 'var(--text-muted)', boxShadow: activeTab === tab ? 'inset 0 0 0 1px rgba(56,189,248,0.3)' : 'none' }}
+      onClick={() => { setActiveTab(tab); setError(null); setSuccess(null); if (onSwitch) onSwitch(); }}
+      style={{ flex: 1, padding: '0.55rem 0.4rem', borderRadius: '10px', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: '0.82rem', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.35rem', transition: 'all 0.2s', background: activeTab === tab ? 'rgba(56,189,248,0.15)' : 'transparent', color: activeTab === tab ? 'var(--primary)' : 'var(--text-muted)', boxShadow: activeTab === tab ? 'inset 0 0 0 1px rgba(56,189,248,0.3)' : 'none' }}
     >
-      <Icon size={15} /> {label}
+      <Icon size={14} /> {label}
     </button>
   );
 
@@ -475,8 +565,10 @@ function App() {
 
             {/* Tab switcher */}
             <div style={{ display: 'flex', gap: '0.4rem', background: 'rgba(15,23,42,0.4)', padding: '0.35rem', borderRadius: '12px', marginBottom: '1.75rem' }}>
-              {tabBtn('provision', 'Bulk Provisioning', Plus)}
-              {tabBtn('manage', 'Manage Users', UserCog)}
+              {tabBtn('provision', 'Provisioning', Plus)}
+              {tabBtn('manage', 'Manage', UserCog)}
+              {tabBtn('users', 'All Users', Users, () => { if (!allUsersLoaded && !allUsersLoading) handleLoadAllUsers(); })}
+              {tabBtn('groups', 'Groups', Layers, () => { if (!groupsLoaded && !groupsLoading) handleLoadGroups(); })}
             </div>
 
             {/* ── Provision tab ── */}
@@ -698,6 +790,7 @@ function App() {
                   </div>
                 )}
 
+                <div style={{ maxHeight: '60vh', overflowY: 'auto', paddingRight: '0.2rem' }}>
                 <AnimatePresence>
                 {searchResults.map(user => {
                   const edit = getUserEdit(user.dn);
@@ -879,6 +972,160 @@ function App() {
                   );
                 })}
                 </AnimatePresence>
+                </div>
+              </div>
+            )}
+
+            {/* ── All Users tab ── */}
+            {activeTab === 'users' && (
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                  <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                    {allUsersLoaded ? `${allUsers.length} users` : 'Browse every account in the directory'}
+                  </span>
+                  <button type="button" onClick={handleLoadAllUsers} disabled={allUsersLoading}
+                    style={{ background: 'rgba(56,189,248,0.1)', border: '1px solid rgba(56,189,248,0.25)', color: 'var(--primary)', padding: '0.4rem 0.85rem', borderRadius: '8px', cursor: allUsersLoading ? 'not-allowed' : 'pointer', fontSize: '0.82rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.35rem', opacity: allUsersLoading ? 0.7 : 1 }}>
+                    {allUsersLoading ? <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1 }}><TerminalSquare size={14} /></motion.div> : <><Search size={13} /> {allUsersLoaded ? 'Refresh' : 'Load All'}</>}
+                  </button>
+                </div>
+
+                {error && (
+                  <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} style={{ color: 'var(--error)', fontSize: '0.9rem', display: 'flex', alignItems: 'flex-start', gap: '0.5rem', marginBottom: '1rem', background: 'rgba(239,68,68,0.1)', padding: '1rem', borderRadius: '10px', border: '1px solid rgba(239,68,68,0.2)' }}>
+                    <AlertCircle size={18} style={{ flexShrink: 0, marginTop: '1px' }} /><span style={{ wordBreak: 'break-word', lineHeight: 1.4 }}>{error}</span>
+                  </motion.div>
+                )}
+
+                {allUsersLoading && !allUsersLoaded && (
+                  <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+                    <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1 }} style={{ display: 'inline-block', marginBottom: '0.75rem' }}><TerminalSquare size={28} /></motion.div>
+                    <div style={{ fontSize: '0.9rem' }}>Loading all directory users...</div>
+                  </div>
+                )}
+
+                {allUsersLoaded && (
+                  <>
+                    <div style={{ maxHeight: '58vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.4rem', paddingRight: '0.25rem' }}>
+                      {allUsers.slice(allUsersPage * ALL_USERS_PAGE_SIZE, (allUsersPage + 1) * ALL_USERS_PAGE_SIZE).map(user => (
+                        <div key={user.dn} style={{ display: 'flex', alignItems: 'center', padding: '0.7rem 1rem', background: user.disabled ? 'rgba(30,20,5,0.4)' : 'rgba(15,23,42,0.4)', borderRadius: '10px', border: user.disabled ? '1px solid rgba(251,191,36,0.15)' : '1px solid var(--panel-border)', opacity: user.disabled ? 0.8 : 1 }}>
+                          <User size={14} style={{ color: 'var(--text-muted)', flexShrink: 0, marginRight: '0.75rem' }} />
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontWeight: 500, fontSize: '0.92rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user.displayName}</div>
+                            <div style={{ color: 'var(--primary)', fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                              {user.username}
+                              {user.disabled && <span style={{ background: 'rgba(251,191,36,0.15)', border: '1px solid rgba(251,191,36,0.3)', color: '#fbbf24', fontSize: '0.65rem', padding: '0.05rem 0.35rem', borderRadius: '3px', fontWeight: 700 }}>DISABLED</span>}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {allUsers.length > ALL_USERS_PAGE_SIZE && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '1rem', paddingTop: '0.75rem', borderTop: '1px solid var(--panel-border)' }}>
+                        <button type="button" onClick={() => setAllUsersPage(p => Math.max(0, p - 1))} disabled={allUsersPage === 0}
+                          style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', color: 'var(--text-main)', padding: '0.5rem 1rem', borderRadius: '8px', cursor: allUsersPage === 0 ? 'not-allowed' : 'pointer', fontSize: '0.85rem', fontWeight: 600, opacity: allUsersPage === 0 ? 0.35 : 1, transition: 'opacity 0.2s' }}>
+                          ← Previous
+                        </button>
+                        <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                          Page {allUsersPage + 1} of {Math.ceil(allUsers.length / ALL_USERS_PAGE_SIZE)} · {allUsers.length} total
+                        </span>
+                        <button type="button" onClick={() => setAllUsersPage(p => Math.min(Math.ceil(allUsers.length / ALL_USERS_PAGE_SIZE) - 1, p + 1))} disabled={allUsersPage >= Math.ceil(allUsers.length / ALL_USERS_PAGE_SIZE) - 1}
+                          style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', color: 'var(--text-main)', padding: '0.5rem 1rem', borderRadius: '8px', cursor: allUsersPage >= Math.ceil(allUsers.length / ALL_USERS_PAGE_SIZE) - 1 ? 'not-allowed' : 'pointer', fontSize: '0.85rem', fontWeight: 600, opacity: allUsersPage >= Math.ceil(allUsers.length / ALL_USERS_PAGE_SIZE) - 1 ? 0.35 : 1, transition: 'opacity 0.2s' }}>
+                          Next →
+                        </button>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* ── Groups tab ── */}
+            {activeTab === 'groups' && (
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                  <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                    {groupsLoaded ? `${groupList.length} groups` : 'Browse AD groups and their members'}
+                  </span>
+                  <button type="button" onClick={() => { handleLoadGroups(); setExpandedGroupDn(null); setGroupMembers({}); }} disabled={groupsLoading}
+                    style={{ background: 'rgba(56,189,248,0.1)', border: '1px solid rgba(56,189,248,0.25)', color: 'var(--primary)', padding: '0.4rem 0.85rem', borderRadius: '8px', cursor: groupsLoading ? 'not-allowed' : 'pointer', fontSize: '0.82rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.35rem', opacity: groupsLoading ? 0.7 : 1 }}>
+                    {groupsLoading ? <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1 }}><TerminalSquare size={14} /></motion.div> : <><Search size={13} /> {groupsLoaded ? 'Refresh' : 'Load Groups'}</>}
+                  </button>
+                </div>
+
+                {error && (
+                  <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} style={{ color: 'var(--error)', fontSize: '0.9rem', display: 'flex', alignItems: 'flex-start', gap: '0.5rem', marginBottom: '1rem', background: 'rgba(239,68,68,0.1)', padding: '1rem', borderRadius: '10px', border: '1px solid rgba(239,68,68,0.2)' }}>
+                    <AlertCircle size={18} style={{ flexShrink: 0, marginTop: '1px' }} /><span style={{ wordBreak: 'break-word', lineHeight: 1.4 }}>{error}</span>
+                  </motion.div>
+                )}
+
+                {groupsLoading && !groupsLoaded && (
+                  <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+                    <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1 }} style={{ display: 'inline-block', marginBottom: '0.75rem' }}><TerminalSquare size={28} /></motion.div>
+                    <div style={{ fontSize: '0.9rem' }}>Loading groups...</div>
+                  </div>
+                )}
+
+                {groupsLoaded && (
+                  <div style={{ maxHeight: '62vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.5rem', paddingRight: '0.25rem' }}>
+                    {groupList.map(group => {
+                      const isExpanded = expandedGroupDn === group.dn;
+                      const mData = groupMembers[group.dn];
+                      return (
+                        <div key={group.dn} style={{ background: 'rgba(15,23,42,0.4)', borderRadius: '12px', border: '1px solid var(--panel-border)', overflow: 'hidden' }}>
+                          <button type="button" onClick={() => handleExpandGroup(group)}
+                            style={{ width: '100%', background: 'transparent', border: 'none', padding: '0.85rem 1rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.75rem', textAlign: 'left', fontFamily: 'inherit', color: 'var(--text-main)' }}>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontWeight: 600, fontSize: '0.95rem', display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{group.cn}</span>
+                                <span style={{ background: group.isSecurity ? 'rgba(56,189,248,0.12)' : 'rgba(16,185,129,0.12)', border: group.isSecurity ? '1px solid rgba(56,189,248,0.25)' : '1px solid rgba(16,185,129,0.25)', color: group.isSecurity ? 'var(--primary)' : 'var(--success)', fontSize: '0.66rem', padding: '0.05rem 0.4rem', borderRadius: '4px', fontWeight: 700, flexShrink: 0 }}>
+                                  {group.isSecurity ? 'Security' : 'Distribution'}
+                                </span>
+                                {group.scope && <span style={{ color: 'var(--text-muted)', fontSize: '0.72rem', fontWeight: 500, flexShrink: 0 }}>{group.scope}</span>}
+                              </div>
+                              {group.description && <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginTop: '0.15rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{group.description}</div>}
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexShrink: 0 }}>
+                              <span style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', padding: '0.2rem 0.6rem', borderRadius: '6px', fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                                {group.memberCount} {group.memberCount === 1 ? 'member' : 'members'}
+                              </span>
+                              <ChevronDown size={15} style={{ color: 'var(--text-muted)', transform: isExpanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s', flexShrink: 0 }} />
+                            </div>
+                          </button>
+
+                          <AnimatePresence>
+                          {isExpanded && (
+                            <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
+                              style={{ overflow: 'hidden', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+                              <div style={{ padding: '0.75rem 1rem' }}>
+                                {mData?.loading ? (
+                                  <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '0.75rem', fontSize: '0.85rem' }}>Loading members...</div>
+                                ) : mData?.error ? (
+                                  <div style={{ color: 'var(--error)', fontSize: '0.85rem' }}>{mData.error}</div>
+                                ) : !mData || mData.members.length === 0 ? (
+                                  <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>No members found.</div>
+                                ) : (
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', maxHeight: '220px', overflowY: 'auto' }}>
+                                    {mData.members.map((m, i) => (
+                                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', padding: '0.4rem 0.6rem', background: m.disabled ? 'rgba(30,20,5,0.4)' : 'rgba(255,255,255,0.03)', borderRadius: '8px', border: m.disabled ? '1px solid rgba(251,191,36,0.1)' : '1px solid transparent' }}>
+                                        <User size={13} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
+                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                          <span style={{ fontSize: '0.88rem', fontWeight: 500 }}>{m.displayName}</span>
+                                          <span style={{ color: 'var(--text-muted)', fontSize: '0.78rem', marginLeft: '0.5rem' }}>{m.username}</span>
+                                        </div>
+                                        {m.disabled && <span style={{ background: 'rgba(251,191,36,0.15)', border: '1px solid rgba(251,191,36,0.3)', color: '#fbbf24', fontSize: '0.65rem', padding: '0.05rem 0.35rem', borderRadius: '3px', fontWeight: 700, flexShrink: 0 }}>DISABLED</span>}
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            </motion.div>
+                          )}
+                          </AnimatePresence>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             )}
 
