@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Shield, Server, Lock, User, TerminalSquare, AlertCircle, CheckCircle2, Tags, X, Plus, FolderTree, LogOut, Download, ClipboardCopy, Search, UserCog } from 'lucide-react';
+import { Shield, Server, Lock, User, TerminalSquare, AlertCircle, CheckCircle2, Tags, X, Plus, FolderTree, LogOut, Download, ClipboardCopy, Search, UserCog, KeyRound, Trash2 } from 'lucide-react';
 import './index.css';
 
 function App() {
@@ -26,8 +26,13 @@ function App() {
   const [userEdits, setUserEdits] = useState({}); // { [dn]: { showPicker, groupSearch, pending } }
   const [savingDn, setSavingDn] = useState(null);
   const [savedDn, setSavedDn] = useState(null);
+  const [confirmDeleteDn, setConfirmDeleteDn] = useState(null);
+  const [resettingDn, setResettingDn] = useState(null);
 
-  const getUserEdit = (dn) => userEdits[dn] || { showPicker: false, groupSearch: '', selected: null };
+  const dairyProducts = ['Cheddar', 'Gouda', 'Brie', 'Milk', 'Yogurt', 'Butter', 'Swiss', 'Provolone', 'Cream', 'Feta', 'Parmesan', 'Mozzarella', 'Ricotta', 'Havarti', 'PepperJack', 'Gruyere', 'Muenster', 'Colby'];
+  const generatePassword = () => `${dairyProducts[Math.floor(Math.random() * dairyProducts.length)]}!${Math.floor(Math.random() * 9000) + 1000}`;
+
+  const getUserEdit = (dn) => userEdits[dn] || { showPicker: false, groupSearch: '', selected: null, showReset: false, resetInput: '', resetPassword: null, resetCopied: false };
   const updateUserEdit = (dn, updates) =>
     setUserEdits(prev => ({ ...prev, [dn]: { ...getUserEdit(dn), ...updates } }));
 
@@ -96,6 +101,7 @@ function App() {
     setSearchQuery('');
     setSearchResults([]);
     setUserEdits({});
+    setConfirmDeleteDn(null);
   };
 
   const handleBulkCreate = async (e) => {
@@ -105,13 +111,12 @@ function App() {
 
     setLoading(true); setError(null); setSuccess(null);
 
-    const dairyProducts = ['Cheddar', 'Gouda', 'Brie', 'Milk', 'Yogurt', 'Butter', 'Swiss', 'Provolone', 'Cream', 'Feta', 'Parmesan', 'Mozzarella', 'Ricotta', 'Havarti', 'PepperJack', 'Gruyere', 'Muenster', 'Colby'];
     const processedUsers = validUsers.map(u => ({
       originalId: u.id,
       firstName: u.firstName.trim(),
       lastName: u.lastName.trim(),
       username: (u.firstName.trim().charAt(0) + u.lastName.trim()).toLowerCase().replace(/[^a-z0-9]/g, ''),
-      password: `${dairyProducts[Math.floor(Math.random() * dairyProducts.length)]}!${Math.floor(Math.random() * 9000) + 1000}`,
+      password: generatePassword(),
       groups: u.groups || [],
     }));
 
@@ -240,6 +245,51 @@ function App() {
       setError('Failed to reach backend server.');
     } finally {
       setSavingDn(null);
+    }
+  };
+
+  const handleResetPassword = async (user) => {
+    const edit = getUserEdit(user.dn);
+    if (!edit.resetInput.trim()) return;
+    setResettingDn(user.dn); setError(null);
+    try {
+      const res = await fetch('/api/users/resetpassword', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...loginForm, userDn: user.dn, newPassword: edit.resetInput.trim() }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        updateUserEdit(user.dn, { showReset: false, resetPassword: edit.resetInput.trim(), resetInput: '', resetCopied: false });
+      } else {
+        setError(data.error || 'Failed to reset password');
+      }
+    } catch {
+      setError('Failed to reach backend server.');
+    } finally {
+      setResettingDn(null);
+    }
+  };
+
+  const handleDeleteUser = async (user) => {
+    setError(null);
+    try {
+      const res = await fetch('/api/users/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...loginForm, userDn: user.dn }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSearchResults(prev => prev.filter(u => u.dn !== user.dn));
+        setConfirmDeleteDn(null);
+      } else {
+        setError(data.error || 'Failed to delete user');
+        setConfirmDeleteDn(null);
+      }
+    } catch {
+      setError('Failed to reach backend server.');
+      setConfirmDeleteDn(null);
     }
   };
 
@@ -623,6 +673,67 @@ function App() {
                           <Tags size={15} /> Edit Groups
                         </button>
                       </div>
+
+                      {/* Action row */}
+                      <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.85rem', paddingTop: '0.85rem', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+                        <button type="button" onClick={() => togglePicker(user)} style={{ background: edit.showPicker ? 'rgba(56,189,248,0.2)' : 'rgba(255,255,255,0.05)', border: edit.showPicker ? '1px solid rgba(56,189,248,0.3)' : '1px solid rgba(255,255,255,0.08)', color: edit.showPicker ? 'var(--primary)' : 'var(--text-muted)', padding: '0.5rem 0.85rem', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.82rem', fontWeight: 600, transition: 'all 0.2s' }}>
+                          <Tags size={13} /> Edit Groups
+                        </button>
+                        <button type="button" onClick={() => {
+                          const isOpen = getUserEdit(user.dn).showReset;
+                          updateUserEdit(user.dn, { showReset: !isOpen, resetInput: !isOpen ? generatePassword() : '' });
+                        }} style={{ background: edit.showReset ? 'rgba(251,191,36,0.15)' : 'rgba(255,255,255,0.05)', border: edit.showReset ? '1px solid rgba(251,191,36,0.3)' : '1px solid rgba(255,255,255,0.08)', color: edit.showReset ? '#fbbf24' : 'var(--text-muted)', padding: '0.5rem 0.85rem', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.82rem', fontWeight: 600, transition: 'all 0.2s' }}>
+                          <KeyRound size={13} /> Reset Password
+                        </button>
+                        <button type="button" onClick={() => {
+                          if (confirmDeleteDn === user.dn) handleDeleteUser(user);
+                          else { setConfirmDeleteDn(user.dn); setTimeout(() => setConfirmDeleteDn(d => d === user.dn ? null : d), 4000); }
+                        }} style={{ marginLeft: 'auto', background: confirmDeleteDn === user.dn ? 'rgba(239,68,68,0.2)' : 'rgba(255,255,255,0.05)', border: confirmDeleteDn === user.dn ? '1px solid rgba(239,68,68,0.4)' : '1px solid rgba(255,255,255,0.08)', color: 'var(--error)', padding: '0.5rem 0.85rem', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.82rem', fontWeight: 600, transition: 'all 0.2s' }}>
+                          <Trash2 size={13} /> {confirmDeleteDn === user.dn ? 'Confirm Delete?' : 'Delete User'}
+                        </button>
+                      </div>
+
+                      {/* Reset password panel */}
+                      <AnimatePresence>
+                      {edit.showReset && (
+                        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} style={{ overflow: 'hidden' }}>
+                          <div style={{ paddingTop: '0.85rem' }}>
+                            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                              <input
+                                type="text"
+                                className="input-field"
+                                value={edit.resetInput}
+                                onChange={e => updateUserEdit(user.dn, { resetInput: e.target.value })}
+                                placeholder="New password"
+                                style={{ padding: '0.65rem 1rem', fontSize: '0.9rem', fontFamily: 'monospace' }}
+                              />
+                              <button type="button" onClick={() => updateUserEdit(user.dn, { resetInput: generatePassword() })} style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'var(--text-muted)', padding: '0.65rem 0.85rem', borderRadius: '12px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600, whiteSpace: 'nowrap', transition: 'all 0.2s' }}>
+                                Regenerate
+                              </button>
+                              <button type="button" onClick={() => handleResetPassword(user)} disabled={resettingDn === user.dn || !edit.resetInput.trim()} style={{ background: 'linear-gradient(135deg,#fbbf24,#f59e0b)', border: 'none', color: '#000', padding: '0.65rem 1rem', borderRadius: '12px', cursor: 'pointer', fontFamily: 'inherit', fontSize: '0.85rem', fontWeight: 700, whiteSpace: 'nowrap', opacity: resettingDn === user.dn ? 0.7 : 1, transition: 'all 0.2s' }}>
+                                {resettingDn === user.dn ? <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1 }}><TerminalSquare size={16} /></motion.div> : 'Set Password'}
+                              </button>
+                            </div>
+                          </div>
+                        </motion.div>
+                      )}
+                      </AnimatePresence>
+
+                      {/* Last reset password display */}
+                      {edit.resetPassword && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.75rem', background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.2)', padding: '0.65rem 1rem', borderRadius: '10px' }}>
+                          <KeyRound size={14} color="#fbbf24" style={{ flexShrink: 0 }} />
+                          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', flexShrink: 0 }}>New password:</span>
+                          <code style={{ color: '#fbbf24', fontWeight: 600, fontSize: '0.9rem', flex: 1 }}>{edit.resetPassword}</code>
+                          <button type="button" onClick={() => {
+                            navigator.clipboard.writeText(edit.resetPassword);
+                            updateUserEdit(user.dn, { resetCopied: true });
+                            setTimeout(() => updateUserEdit(user.dn, { resetCopied: false }), 2000);
+                          }} style={{ background: edit.resetCopied ? 'rgba(16,185,129,0.15)' : 'rgba(255,255,255,0.05)', border: edit.resetCopied ? '1px solid rgba(16,185,129,0.3)' : '1px solid rgba(255,255,255,0.1)', color: edit.resetCopied ? 'var(--success)' : 'var(--text-muted)', padding: '0.35rem 0.6rem', borderRadius: '6px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.75rem', fontWeight: 600, transition: 'all 0.2s', whiteSpace: 'nowrap' }}>
+                            {edit.resetCopied ? <><CheckCircle2 size={13} /> Copied!</> : <ClipboardCopy size={13} />}
+                          </button>
+                        </div>
+                      )}
 
                       {/* Group picker */}
                       <AnimatePresence>

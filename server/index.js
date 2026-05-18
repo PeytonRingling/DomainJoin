@@ -387,6 +387,49 @@ app.post('/api/users/addgroups', async (req, res) => {
   }
 });
 
+app.post('/api/users/resetpassword', async (req, res) => {
+  const { dcServer, username, password, userDn, newPassword } = req.body;
+  if (!dcServer || !username || !password)
+    return res.status(400).json({ error: 'Missing credentials' });
+  if (!userDn || !newPassword)
+    return res.status(400).json({ error: 'Missing user DN or new password' });
+
+  const client = createClient(dcServer);
+  try {
+    await client.bind(normalizeUsername(username), password);
+    await client.modify(userDn, [
+      new Change({
+        operation: 'replace',
+        modification: new Attribute({ type: 'unicodePwd', values: [encodePassword(newPassword)] }),
+      }),
+    ]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to reset password' });
+  } finally {
+    await client.unbind().catch(() => {});
+  }
+});
+
+app.post('/api/users/delete', async (req, res) => {
+  const { dcServer, username, password, userDn } = req.body;
+  if (!dcServer || !username || !password)
+    return res.status(400).json({ error: 'Missing credentials' });
+  if (!userDn)
+    return res.status(400).json({ error: 'Missing user DN' });
+
+  const client = createClient(dcServer);
+  try {
+    await client.bind(normalizeUsername(username), password);
+    await client.delete(userDn);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to delete user' });
+  } finally {
+    await client.unbind().catch(() => {});
+  }
+});
+
 const server = app.listen(PORT, () => {
   console.log(`Backend server running on port ${PORT}`);
 });
