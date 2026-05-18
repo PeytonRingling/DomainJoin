@@ -409,7 +409,7 @@ app.post('/api/users/all', async (req, res) => {
     const { searchEntries } = await client.search(BASE_DN, {
       filter: '(&(objectClass=user)(objectCategory=person))',
       scope: 'sub',
-      attributes: ['dn', 'cn', 'sAMAccountName', 'displayName', 'givenName', 'sn', 'userAccountControl'],
+      attributes: ['dn', 'cn', 'sAMAccountName', 'displayName', 'givenName', 'sn', 'userAccountControl', 'memberOf'],
       paged: { pageSize: 200 },
     });
     const users = searchEntries.map(e => {
