@@ -19,17 +19,16 @@ function App() {
   const [createdList, setCreatedList] = useState([]);
   const [copiedIndex, setCopiedIndex] = useState(null);
 
-  // Manage users state
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState([]);
-  const [searchLoading, setSearchLoading] = useState(false);
-  const [userEdits, setUserEdits] = useState({}); // { [dn]: { showPicker, groupSearch, pending } }
+  // Users tab (combined browse + manage)
+  const [userFilter, setUserFilter] = useState('');
+  const [selectedUserDn, setSelectedUserDn] = useState(null);
+  const [userEdits, setUserEdits] = useState({});
   const [savingDn, setSavingDn] = useState(null);
   const [savedDn, setSavedDn] = useState(null);
   const [confirmDeleteDn, setConfirmDeleteDn] = useState(null);
   const [resettingDn, setResettingDn] = useState(null);
   const [disablingDn, setDisablingDn] = useState(null);
-  const [listTruncated, setListTruncated] = useState(false);
+  const [removingMemberKey, setRemovingMemberKey] = useState(null);
 
   // All Users tab
   const ALL_USERS_PAGE_SIZE = 200;
@@ -115,8 +114,8 @@ function App() {
     setError(null);
     setSuccess(null);
     setActiveTab('provision');
-    setSearchQuery('');
-    setSearchResults([]);
+    setUserFilter('');
+    setSelectedUserDn(null);
     setUserEdits({});
     setConfirmDeleteDn(null);
     setAllUsers([]);
@@ -127,7 +126,6 @@ function App() {
     setExpandedGroupDn(null);
     setGroupMembers({});
     setGroupSearch('');
-    setListTruncated(false);
   };
 
   const handleBulkCreate = async (e) => {
@@ -198,55 +196,6 @@ function App() {
     }
   };
 
-  const handleListAllUsers = async () => {
-    setSearchLoading(true); setError(null); setSearchQuery(''); setListTruncated(false);
-    try {
-      const res = await fetch('/api/users/search', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...loginForm, query: '' }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        setSearchResults(data.users);
-        setUserEdits({});
-        setListTruncated(data.truncated || false);
-        if (data.users.length === 0) setError('No users found in the directory.');
-      } else {
-        setError(data.error || 'Failed to list users');
-      }
-    } catch {
-      setError('Failed to reach backend server.');
-    } finally {
-      setSearchLoading(false);
-    }
-  };
-
-  const handleUserSearch = async (e) => {
-    e.preventDefault();
-    if (!searchQuery.trim()) return;
-    setSearchLoading(true); setError(null);
-    try {
-      const res = await fetch('/api/users/search', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...loginForm, query: searchQuery }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        setSearchResults(data.users);
-        setUserEdits({});
-        if (data.users.length === 0) setError('No users found matching that query.');
-      } else {
-        setError(data.error || 'Search failed');
-      }
-    } catch {
-      setError('Failed to reach backend server.');
-    } finally {
-      setSearchLoading(false);
-    }
-  };
-
   const handleToggleDisable = async (user) => {
     setDisablingDn(user.dn); setError(null);
     try {
@@ -257,7 +206,7 @@ function App() {
       });
       const data = await res.json();
       if (data.success) {
-        setSearchResults(prev => prev.map(u => u.dn === user.dn ? { ...u, disabled: !user.disabled } : u));
+        setAllUsers(prev => prev.map(u => u.dn === user.dn ? { ...u, disabled: !user.disabled } : u));
       } else {
         setError(data.error || 'Failed to update user status');
       }
@@ -265,6 +214,33 @@ function App() {
       setError('Failed to reach backend server.');
     } finally {
       setDisablingDn(null);
+    }
+  };
+
+  const handleRemoveGroupMember = async (groupDn, groupCn, memberDn) => {
+    const key = `${groupDn}|${memberDn}`;
+    setRemovingMemberKey(key); setError(null);
+    try {
+      const res = await fetch('/api/users/removegroups', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...loginForm, userDn: memberDn, groups: [groupCn] }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setGroupMembers(prev => ({
+          ...prev,
+          [groupDn]: { ...prev[groupDn], members: prev[groupDn].members.filter(m => m.dn !== memberDn) },
+        }));
+        setGroupList(prev => prev.map(g => g.dn === groupDn ? { ...g, memberCount: Math.max(0, g.memberCount - 1) } : g));
+        setAllUsers(prev => prev.map(u => u.dn === memberDn ? { ...u, groups: u.groups.filter(g => g !== groupCn) } : u));
+      } else {
+        setError(data.error || 'Failed to remove from group');
+      }
+    } catch {
+      setError('Failed to reach backend server.');
+    } finally {
+      setRemovingMemberKey(null);
     }
   };
 
@@ -373,7 +349,7 @@ function App() {
       const newGroups = [...new Set([...user.groups, ...added])]
         .filter(g => !removed.includes(g)).sort();
 
-      setSearchResults(prev => prev.map(u =>
+      setAllUsers(prev => prev.map(u =>
         u.dn === user.dn ? { ...u, groups: newGroups } : u
       ));
       updateUserEdit(user.dn, { selected: newGroups, showPicker: false });
@@ -420,7 +396,8 @@ function App() {
       });
       const data = await res.json();
       if (data.success) {
-        setSearchResults(prev => prev.filter(u => u.dn !== user.dn));
+        setAllUsers(prev => prev.filter(u => u.dn !== user.dn));
+        setSelectedUserDn(null);
         setConfirmDeleteDn(null);
       } else {
         setError(data.error || 'Failed to delete user');
@@ -568,8 +545,7 @@ function App() {
             {/* Tab switcher */}
             <div style={{ display: 'flex', gap: '0.4rem', background: 'rgba(15,23,42,0.4)', padding: '0.35rem', borderRadius: '12px', marginBottom: '1.75rem' }}>
               {tabBtn('provision', 'Provisioning', Plus)}
-              {tabBtn('manage', 'Manage', UserCog)}
-              {tabBtn('users', 'All Users', Users, () => { if (!allUsersLoaded && !allUsersLoading) handleLoadAllUsers(); })}
+              {tabBtn('users', 'Users', Users, () => { if (!allUsersLoaded && !allUsersLoading) handleLoadAllUsers(); })}
               {tabBtn('groups', 'Groups', Layers, () => { if (!groupsLoaded && !groupsLoading) handleLoadGroups(); })}
             </div>
 
@@ -755,230 +731,39 @@ function App() {
               </>
             )}
 
-            {/* ── Manage Users tab ── */}
-            {activeTab === 'manage' && (
+            {/* ── Users tab (combined browse + manage) ── */}
+            {activeTab === 'users' && (() => {
+              const q = userFilter.toLowerCase();
+              const filteredUsers = allUsers.filter(u => !q || u.displayName.toLowerCase().includes(q) || u.username.toLowerCase().includes(q));
+              const totalPages = Math.ceil(filteredUsers.length / ALL_USERS_PAGE_SIZE);
+              const pageUsers = filteredUsers.slice(allUsersPage * ALL_USERS_PAGE_SIZE, (allUsersPage + 1) * ALL_USERS_PAGE_SIZE);
+              return (
               <div>
-                <form onSubmit={handleUserSearch} style={{ display: 'flex', gap: '0.75rem', marginBottom: '1.5rem' }}>
+                {/* Search bar + Refresh */}
+                <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '0.85rem' }}>
                   <div style={{ flex: 1, position: 'relative' }}>
-                    <input
-                      type="text"
-                      className="input-field"
-                      placeholder="Search by name or username..."
-                      value={searchQuery}
-                      onChange={e => setSearchQuery(e.target.value)}
-                    />
-                    <Search className="input-icon" size={18} style={{ top: '50%', transform: 'translateY(-50%)' }} />
+                    <input type="text" className="input-field" placeholder="Filter by name or username…"
+                      value={userFilter} onChange={e => { setUserFilter(e.target.value); setAllUsersPage(0); }}
+                      style={{ padding: '0.65rem 2.2rem 0.65rem 2.4rem' }} />
+                    <Search style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} size={15} />
+                    {userFilter && (
+                      <button type="button" onClick={() => { setUserFilter(''); setAllUsersPage(0); }}
+                        style={{ position: 'absolute', right: '0.65rem', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 0, display: 'flex' }}>
+                        <X size={14} />
+                      </button>
+                    )}
                   </div>
-                  <button type="submit" className="btn-primary" disabled={searchLoading} style={{ width: 'auto', padding: '0 1.25rem', flexShrink: 0 }}>
-                    {searchLoading ? <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1 }}><TerminalSquare size={18} /></motion.div> : 'Search'}
-                  </button>
-                </form>
-
-                {error && (
-                  <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} style={{ color: 'var(--error)', fontSize: '0.9rem', display: 'flex', alignItems: 'flex-start', gap: '0.5rem', marginBottom: '1.5rem', background: 'rgba(239, 68, 68, 0.1)', padding: '1rem', borderRadius: '10px', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
-                    <AlertCircle size={18} style={{ flexShrink: 0, marginTop: '1px' }} />
-                    <span style={{ wordBreak: 'break-word', lineHeight: 1.4 }}>{error}</span>
-                  </motion.div>
-                )}
-
-                <div style={{ maxHeight: '60vh', overflowY: 'auto', paddingRight: '0.2rem' }}>
-                <AnimatePresence>
-                {searchResults.map(user => {
-                  const edit = getUserEdit(user.dn);
-                  const isSaving = savingDn === user.dn;
-                  const isSaved  = savedDn  === user.dn;
-                  return (
-                    <motion.div
-                      key={user.dn}
-                      initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95 }}
-                      style={{ background: user.disabled ? 'rgba(30,20,5,0.45)' : 'rgba(15,23,42,0.4)', borderRadius: '16px', border: user.disabled ? '1px solid rgba(251,191,36,0.2)' : '1px solid var(--panel-border)', padding: '1.25rem', marginBottom: '0.75rem', opacity: user.disabled ? 0.82 : 1, transition: 'border-color 0.3s, background 0.3s' }}
-                    >
-                      {/* User info row */}
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontWeight: 600, fontSize: '1.05rem' }}>{user.displayName}</div>
-                          <div style={{ color: 'var(--primary)', fontSize: '0.85rem', marginTop: '0.15rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                            {user.username}
-                            {user.disabled && <span style={{ background: 'rgba(251,191,36,0.15)', border: '1px solid rgba(251,191,36,0.3)', color: '#fbbf24', fontSize: '0.67rem', padding: '0.1rem 0.4rem', borderRadius: '4px', fontWeight: 700, letterSpacing: '0.05em' }}>DISABLED</span>}
-                          </div>
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginTop: '0.65rem' }}>
-                            {user.groups.length === 0
-                              ? <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>No group memberships found</span>
-                              : user.groups.map(g => (
-                                  <div key={g} style={{ background: 'rgba(56,189,248,0.08)', border: '1px solid rgba(56,189,248,0.2)', color: 'var(--primary)', fontSize: '0.75rem', padding: '0.2rem 0.5rem', borderRadius: '6px', fontWeight: 500 }}>{g}</div>
-                                ))
-                            }
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => togglePicker(user)}
-                          style={{ background: edit.showPicker ? 'rgba(56,189,248,0.2)' : 'rgba(255,255,255,0.05)', border: edit.showPicker ? '1px solid rgba(56,189,248,0.3)' : '1px solid rgba(255,255,255,0.08)', color: edit.showPicker ? 'var(--primary)' : 'var(--text-muted)', padding: '0.6rem 0.9rem', borderRadius: '10px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.4rem', flexShrink: 0, marginLeft: '1rem', fontSize: '0.85rem', fontWeight: 600, transition: 'all 0.2s' }}
-                        >
-                          <Tags size={15} /> Edit Groups
-                        </button>
-                      </div>
-
-                      {/* Action row */}
-                      <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.85rem', paddingTop: '0.85rem', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
-                        <button type="button" onClick={() => togglePicker(user)} style={{ background: edit.showPicker ? 'rgba(56,189,248,0.2)' : 'rgba(255,255,255,0.05)', border: edit.showPicker ? '1px solid rgba(56,189,248,0.3)' : '1px solid rgba(255,255,255,0.08)', color: edit.showPicker ? 'var(--primary)' : 'var(--text-muted)', padding: '0.5rem 0.85rem', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.82rem', fontWeight: 600, transition: 'all 0.2s' }}>
-                          <Tags size={13} /> Edit Groups
-                        </button>
-                        <button type="button" onClick={() => {
-                          const isOpen = getUserEdit(user.dn).showReset;
-                          updateUserEdit(user.dn, { showReset: !isOpen, resetInput: !isOpen ? generatePassword() : '' });
-                        }} style={{ background: edit.showReset ? 'rgba(251,191,36,0.15)' : 'rgba(255,255,255,0.05)', border: edit.showReset ? '1px solid rgba(251,191,36,0.3)' : '1px solid rgba(255,255,255,0.08)', color: edit.showReset ? '#fbbf24' : 'var(--text-muted)', padding: '0.5rem 0.85rem', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.82rem', fontWeight: 600, transition: 'all 0.2s' }}>
-                          <KeyRound size={13} /> Reset Password
-                        </button>
-                        <button type="button" onClick={() => handleToggleDisable(user)} disabled={disablingDn === user.dn}
-                          style={{ background: user.disabled ? 'rgba(16,185,129,0.12)' : 'rgba(251,191,36,0.1)', border: user.disabled ? '1px solid rgba(16,185,129,0.25)' : '1px solid rgba(251,191,36,0.25)', color: user.disabled ? 'var(--success)' : '#fbbf24', padding: '0.5rem 0.85rem', borderRadius: '8px', cursor: disablingDn === user.dn ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.82rem', fontWeight: 600, transition: 'all 0.2s', opacity: disablingDn === user.dn ? 0.6 : 1 }}>
-                          {disablingDn === user.dn
-                            ? <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1 }}><TerminalSquare size={13} /></motion.div>
-                            : user.disabled ? <><UserCheck size={13} /> Enable</> : <><UserX size={13} /> Disable</>
-                          }
-                        </button>
-                        <button type="button" onClick={() => {
-                          if (confirmDeleteDn === user.dn) handleDeleteUser(user);
-                          else { setConfirmDeleteDn(user.dn); setTimeout(() => setConfirmDeleteDn(d => d === user.dn ? null : d), 4000); }
-                        }} style={{ marginLeft: 'auto', background: confirmDeleteDn === user.dn ? 'rgba(239,68,68,0.2)' : 'rgba(255,255,255,0.05)', border: confirmDeleteDn === user.dn ? '1px solid rgba(239,68,68,0.4)' : '1px solid rgba(255,255,255,0.08)', color: 'var(--error)', padding: '0.5rem 0.85rem', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.82rem', fontWeight: 600, transition: 'all 0.2s' }}>
-                          <Trash2 size={13} /> {confirmDeleteDn === user.dn ? 'Confirm Delete?' : 'Delete User'}
-                        </button>
-                      </div>
-
-                      {/* Reset password panel */}
-                      <AnimatePresence>
-                      {edit.showReset && (
-                        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} style={{ overflow: 'hidden' }}>
-                          <div style={{ paddingTop: '0.85rem' }}>
-                            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                              <input
-                                type="text"
-                                className="input-field"
-                                value={edit.resetInput}
-                                onChange={e => updateUserEdit(user.dn, { resetInput: e.target.value })}
-                                placeholder="New password"
-                                style={{ padding: '0.65rem 1rem', fontSize: '0.9rem', fontFamily: 'monospace' }}
-                              />
-                              <button type="button" onClick={() => updateUserEdit(user.dn, { resetInput: generatePassword() })} style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'var(--text-muted)', padding: '0.65rem 0.85rem', borderRadius: '12px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600, whiteSpace: 'nowrap', transition: 'all 0.2s' }}>
-                                Regenerate
-                              </button>
-                              <button type="button" onClick={() => handleResetPassword(user)} disabled={resettingDn === user.dn || !edit.resetInput.trim()} style={{ background: 'linear-gradient(135deg,#fbbf24,#f59e0b)', border: 'none', color: '#000', padding: '0.65rem 1rem', borderRadius: '12px', cursor: 'pointer', fontFamily: 'inherit', fontSize: '0.85rem', fontWeight: 700, whiteSpace: 'nowrap', opacity: resettingDn === user.dn ? 0.7 : 1, transition: 'all 0.2s' }}>
-                                {resettingDn === user.dn ? <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1 }}><TerminalSquare size={16} /></motion.div> : 'Set Password'}
-                              </button>
-                            </div>
-                          </div>
-                        </motion.div>
-                      )}
-                      </AnimatePresence>
-
-                      {/* Last reset password display */}
-                      {edit.resetPassword && (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.75rem', background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.2)', padding: '0.65rem 1rem', borderRadius: '10px' }}>
-                          <KeyRound size={14} color="#fbbf24" style={{ flexShrink: 0 }} />
-                          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', flexShrink: 0 }}>New password:</span>
-                          <code style={{ color: '#fbbf24', fontWeight: 600, fontSize: '0.9rem', flex: 1 }}>{edit.resetPassword}</code>
-                          <button type="button" onClick={() => {
-                            navigator.clipboard.writeText(edit.resetPassword);
-                            updateUserEdit(user.dn, { resetCopied: true });
-                            setTimeout(() => updateUserEdit(user.dn, { resetCopied: false }), 2000);
-                          }} style={{ background: edit.resetCopied ? 'rgba(16,185,129,0.15)' : 'rgba(255,255,255,0.05)', border: edit.resetCopied ? '1px solid rgba(16,185,129,0.3)' : '1px solid rgba(255,255,255,0.1)', color: edit.resetCopied ? 'var(--success)' : 'var(--text-muted)', padding: '0.35rem 0.6rem', borderRadius: '6px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.75rem', fontWeight: 600, transition: 'all 0.2s', whiteSpace: 'nowrap' }}>
-                            {edit.resetCopied ? <><CheckCircle2 size={13} /> Copied!</> : <ClipboardCopy size={13} />}
-                          </button>
-                        </div>
-                      )}
-
-                      {/* Group picker */}
-                      <AnimatePresence>
-                      {edit.showPicker && (
-                        <motion.div
-                          initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
-                          style={{ overflow: 'hidden', marginTop: '1rem', borderTop: '1px solid rgba(255,255,255,0.05)' }}
-                        >
-                          <div style={{ paddingTop: '1rem' }}>
-                            {adGroups.length > 0 && (
-                              <input type="text" className="input-field" placeholder="Search groups..." value={edit.groupSearch} onChange={e => updateUserEdit(user.dn, { groupSearch: e.target.value })} style={{ marginBottom: '0.75rem', background: 'rgba(15,23,42,0.8)', padding: '0.65rem 1rem', fontSize: '0.9rem' }} />
-                            )}
-                            <div style={{ maxHeight: '180px', overflowY: 'auto', background: 'rgba(15,23,42,0.6)', borderRadius: '12px', border: '1px solid var(--panel-border)', padding: '0.6rem' }}>
-                              {adGroups.length === 0 ? (
-                                <div style={{ padding: '1rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.9rem' }}>No groups discovered.</div>
-                              ) : (
-                                adGroups.filter(g => g.toLowerCase().includes(edit.groupSearch.toLowerCase())).map(g => {
-                                  const wasMember = user.groups.includes(g);
-                                  const isSelected = (edit.selected ?? user.groups).includes(g);
-                                  const isToAdd    = !wasMember && isSelected;
-                                  const isToRemove = wasMember && !isSelected;
-                                  return (
-                                    <label key={g} style={{ display: 'flex', alignItems: 'center', padding: '0.5rem 0.8rem', cursor: 'pointer', background: isToRemove ? 'rgba(239,68,68,0.08)' : isToAdd ? 'rgba(56,189,248,0.15)' : isSelected ? 'rgba(56,189,248,0.08)' : 'transparent', borderRadius: '8px', transition: 'all 0.2s', border: isToRemove ? '1px solid rgba(239,68,68,0.25)' : isToAdd ? '1px solid rgba(56,189,248,0.3)' : '1px solid transparent', marginBottom: '4px' }}>
-                                      <input
-                                        type="checkbox"
-                                        checked={isSelected}
-                                        onChange={(e) => {
-                                          const cur = edit.selected ?? [...user.groups];
-                                          const next = e.target.checked
-                                            ? [...cur, g]
-                                            : cur.filter(x => x !== g);
-                                          updateUserEdit(user.dn, { selected: next });
-                                        }}
-                                        style={{ marginRight: '0.75rem', accentColor: 'var(--primary)', width: '16px', height: '16px' }}
-                                      />
-                                      <span style={{ fontSize: '0.9rem', color: isSelected || isToAdd ? '#fff' : 'var(--text-main)', fontWeight: isSelected ? 500 : 400 }}>{g}</span>
-                                      {isToAdd    && <span style={{ marginLeft: 'auto', fontSize: '0.7rem', color: 'var(--primary)', fontWeight: 700 }}>ADD</span>}
-                                      {isToRemove && <span style={{ marginLeft: 'auto', fontSize: '0.7rem', color: 'var(--error)',   fontWeight: 700 }}>REMOVE</span>}
-                                    </label>
-                                  );
-                                })
-                              )}
-                            </div>
-
-                            {(() => {
-                              const sel = edit.selected ?? user.groups;
-                              const toAdd    = sel.filter(g => !user.groups.includes(g));
-                              const toRemove = user.groups.filter(g => !sel.includes(g));
-                              const hasChanges = toAdd.length > 0 || toRemove.length > 0;
-                              const label = [
-                                toAdd.length    ? `Add ${toAdd.length}`    : null,
-                                toRemove.length ? `Remove ${toRemove.length}` : null,
-                              ].filter(Boolean).join(', ');
-                              return hasChanges ? (
-                                <button
-                                  type="button"
-                                  onClick={() => handleSaveGroups(user)}
-                                  disabled={isSaving}
-                                  style={{ marginTop: '0.75rem', width: '100%', background: isSaved ? 'rgba(16,185,129,0.15)' : 'linear-gradient(135deg,#38bdf8,#0ea5e9)', border: isSaved ? '1px solid rgba(16,185,129,0.3)' : 'none', color: isSaved ? 'var(--success)' : '#fff', padding: '0.75rem', borderRadius: '10px', cursor: isSaving ? 'not-allowed' : 'pointer', fontFamily: 'inherit', fontSize: '0.9rem', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem', transition: 'all 0.2s', opacity: isSaving ? 0.7 : 1 }}
-                                >
-                                  {isSaving
-                                    ? <><motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1 }}><TerminalSquare size={16} /></motion.div> Saving...</>
-                                    : isSaved
-                                      ? <><CheckCircle2 size={16} /> Saved!</>
-                                      : `Save changes — ${label}`
-                                  }
-                                </button>
-                              ) : null;
-                            })()}
-                          </div>
-                        </motion.div>
-                      )}
-                      </AnimatePresence>
-                    </motion.div>
-                  );
-                })}
-                </AnimatePresence>
-                </div>
-              </div>
-            )}
-
-            {/* ── All Users tab ── */}
-            {activeTab === 'users' && (
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                  <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                    {allUsersLoaded ? `${allUsers.length} users` : 'Browse every account in the directory'}
-                  </span>
                   <button type="button" onClick={handleLoadAllUsers} disabled={allUsersLoading}
-                    style={{ background: 'rgba(56,189,248,0.1)', border: '1px solid rgba(56,189,248,0.25)', color: 'var(--primary)', padding: '0.4rem 0.85rem', borderRadius: '8px', cursor: allUsersLoading ? 'not-allowed' : 'pointer', fontSize: '0.82rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.35rem', opacity: allUsersLoading ? 0.7 : 1 }}>
+                    style={{ flexShrink: 0, background: 'rgba(56,189,248,0.1)', border: '1px solid rgba(56,189,248,0.25)', color: 'var(--primary)', padding: '0 1rem', borderRadius: '12px', cursor: allUsersLoading ? 'not-allowed' : 'pointer', fontSize: '0.82rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.35rem', opacity: allUsersLoading ? 0.7 : 1 }}>
                     {allUsersLoading ? <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1 }}><TerminalSquare size={14} /></motion.div> : <><Search size={13} /> {allUsersLoaded ? 'Refresh' : 'Load All'}</>}
                   </button>
                 </div>
+
+                {allUsersLoaded && (
+                  <div style={{ fontSize: '0.79rem', color: 'var(--text-muted)', marginBottom: '0.75rem' }}>
+                    {userFilter ? `${filteredUsers.length} of ${allUsers.length} users — click a row to manage` : `${allUsers.length} users — click a row to manage`}
+                  </div>
+                )}
 
                 {error && (
                   <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} style={{ color: 'var(--error)', fontSize: '0.9rem', display: 'flex', alignItems: 'flex-start', gap: '0.5rem', marginBottom: '1rem', background: 'rgba(239,68,68,0.1)', padding: '1rem', borderRadius: '10px', border: '1px solid rgba(239,68,68,0.2)' }}>
@@ -989,38 +774,181 @@ function App() {
                 {allUsersLoading && !allUsersLoaded && (
                   <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}>
                     <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1 }} style={{ display: 'inline-block', marginBottom: '0.75rem' }}><TerminalSquare size={28} /></motion.div>
-                    <div style={{ fontSize: '0.9rem' }}>Loading all directory users...</div>
+                    <div style={{ fontSize: '0.9rem' }}>Loading all directory users…</div>
                   </div>
                 )}
 
                 {allUsersLoaded && (
                   <>
-                    <div style={{ maxHeight: '58vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.4rem', paddingRight: '0.25rem' }}>
-                      {allUsers.slice(allUsersPage * ALL_USERS_PAGE_SIZE, (allUsersPage + 1) * ALL_USERS_PAGE_SIZE).map(user => (
-                        <div key={user.dn} style={{ display: 'flex', alignItems: 'center', padding: '0.7rem 1rem', background: user.disabled ? 'rgba(30,20,5,0.4)' : 'rgba(15,23,42,0.4)', borderRadius: '10px', border: user.disabled ? '1px solid rgba(251,191,36,0.15)' : '1px solid var(--panel-border)', opacity: user.disabled ? 0.8 : 1 }}>
-                          <User size={14} style={{ color: 'var(--text-muted)', flexShrink: 0, marginRight: '0.75rem' }} />
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontWeight: 500, fontSize: '0.92rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user.displayName}</div>
-                            <div style={{ color: 'var(--primary)', fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                              {user.username}
-                              {user.disabled && <span style={{ background: 'rgba(251,191,36,0.15)', border: '1px solid rgba(251,191,36,0.3)', color: '#fbbf24', fontSize: '0.65rem', padding: '0.05rem 0.35rem', borderRadius: '3px', fontWeight: 700 }}>DISABLED</span>}
+                    <div style={{ maxHeight: '56vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.4rem', paddingRight: '0.25rem' }}>
+                      <AnimatePresence>
+                      {pageUsers.map(user => {
+                        const isExpanded = selectedUserDn === user.dn;
+                        const edit = getUserEdit(user.dn);
+                        const isSaving = savingDn === user.dn;
+                        const isSaved  = savedDn  === user.dn;
+                        return (
+                          <motion.div key={user.dn} initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.97 }}
+                            style={{ background: user.disabled ? 'rgba(30,20,5,0.45)' : 'rgba(15,23,42,0.4)', borderRadius: '12px', border: user.disabled ? '1px solid rgba(251,191,36,0.2)' : '1px solid var(--panel-border)', transition: 'border-color 0.3s, background 0.3s', opacity: user.disabled ? 0.88 : 1 }}>
+
+                            {/* Clickable header row */}
+                            <div role="button" tabIndex={0}
+                              onClick={() => { setSelectedUserDn(isExpanded ? null : user.dn); if (!isExpanded) setConfirmDeleteDn(null); }}
+                              onKeyDown={e => e.key === 'Enter' && setSelectedUserDn(isExpanded ? null : user.dn)}
+                              style={{ display: 'flex', alignItems: 'center', padding: '0.7rem 1rem', cursor: 'pointer', userSelect: 'none', gap: '0.65rem', borderRadius: isExpanded ? '12px 12px 0 0' : '12px' }}>
+                              <User size={14} style={{ color: user.disabled ? '#fbbf24' : 'var(--text-muted)', flexShrink: 0 }} />
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontWeight: 500, fontSize: '0.93rem', color: 'var(--text-main)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{user.displayName}</div>
+                                <div style={{ color: 'var(--primary)', fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.1rem' }}>
+                                  {user.username}
+                                  {user.disabled && <span style={{ background: 'rgba(251,191,36,0.15)', border: '1px solid rgba(251,191,36,0.3)', color: '#fbbf24', fontSize: '0.65rem', padding: '0.05rem 0.35rem', borderRadius: '3px', fontWeight: 700 }}>DISABLED</span>}
+                                </div>
+                              </div>
+                              {user.groups.length > 0 && <span style={{ color: 'var(--text-muted)', fontSize: '0.74rem', flexShrink: 0 }}>{user.groups.length} group{user.groups.length !== 1 ? 's' : ''}</span>}
+                              <ChevronDown size={14} style={{ color: 'var(--text-muted)', transform: isExpanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s', flexShrink: 0 }} />
                             </div>
-                          </div>
-                        </div>
-                      ))}
+
+                            {/* Management panel */}
+                            <AnimatePresence>
+                            {isExpanded && (
+                              <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
+                                style={{ overflow: 'hidden', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                                <div style={{ padding: '0.9rem 1rem' }}>
+
+                                  {/* Groups chips */}
+                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginBottom: '0.85rem' }}>
+                                    {user.groups.length === 0
+                                      ? <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>No group memberships</span>
+                                      : user.groups.map(g => <div key={g} style={{ background: 'rgba(56,189,248,0.08)', border: '1px solid rgba(56,189,248,0.2)', color: 'var(--primary)', fontSize: '0.75rem', padding: '0.2rem 0.5rem', borderRadius: '6px', fontWeight: 500 }}>{g}</div>)
+                                    }
+                                  </div>
+
+                                  {/* Action row */}
+                                  <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                                    <button type="button" onClick={() => togglePicker(user)}
+                                      style={{ background: edit.showPicker ? 'rgba(56,189,248,0.2)' : 'rgba(255,255,255,0.05)', border: edit.showPicker ? '1px solid rgba(56,189,248,0.3)' : '1px solid rgba(255,255,255,0.08)', color: edit.showPicker ? 'var(--primary)' : 'var(--text-muted)', padding: '0.5rem 0.85rem', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.82rem', fontWeight: 600, transition: 'all 0.2s' }}>
+                                      <Tags size={13} /> Edit Groups
+                                    </button>
+                                    <button type="button" onClick={() => { const isOpen = edit.showReset; updateUserEdit(user.dn, { showReset: !isOpen, resetInput: !isOpen ? generatePassword() : '' }); }}
+                                      style={{ background: edit.showReset ? 'rgba(251,191,36,0.15)' : 'rgba(255,255,255,0.05)', border: edit.showReset ? '1px solid rgba(251,191,36,0.3)' : '1px solid rgba(255,255,255,0.08)', color: edit.showReset ? '#fbbf24' : 'var(--text-muted)', padding: '0.5rem 0.85rem', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.82rem', fontWeight: 600, transition: 'all 0.2s' }}>
+                                      <KeyRound size={13} /> Reset Password
+                                    </button>
+                                    <button type="button" onClick={() => handleToggleDisable(user)} disabled={disablingDn === user.dn}
+                                      style={{ background: user.disabled ? 'rgba(16,185,129,0.12)' : 'rgba(251,191,36,0.1)', border: user.disabled ? '1px solid rgba(16,185,129,0.25)' : '1px solid rgba(251,191,36,0.25)', color: user.disabled ? 'var(--success)' : '#fbbf24', padding: '0.5rem 0.85rem', borderRadius: '8px', cursor: disablingDn === user.dn ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.82rem', fontWeight: 600, transition: 'all 0.2s', opacity: disablingDn === user.dn ? 0.6 : 1 }}>
+                                      {disablingDn === user.dn ? <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1 }}><TerminalSquare size={13} /></motion.div>
+                                        : user.disabled ? <><UserCheck size={13} /> Enable</> : <><UserX size={13} /> Disable</>}
+                                    </button>
+                                    <button type="button" onClick={() => { if (confirmDeleteDn === user.dn) handleDeleteUser(user); else { setConfirmDeleteDn(user.dn); setTimeout(() => setConfirmDeleteDn(d => d === user.dn ? null : d), 4000); } }}
+                                      style={{ marginLeft: 'auto', background: confirmDeleteDn === user.dn ? 'rgba(239,68,68,0.2)' : 'rgba(255,255,255,0.05)', border: confirmDeleteDn === user.dn ? '1px solid rgba(239,68,68,0.4)' : '1px solid rgba(255,255,255,0.08)', color: 'var(--error)', padding: '0.5rem 0.85rem', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.82rem', fontWeight: 600, transition: 'all 0.2s' }}>
+                                      <Trash2 size={13} /> {confirmDeleteDn === user.dn ? 'Confirm Delete?' : 'Delete'}
+                                    </button>
+                                  </div>
+
+                                  {/* Reset password panel */}
+                                  <AnimatePresence>
+                                  {edit.showReset && (
+                                    <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} style={{ overflow: 'hidden' }}>
+                                      <div style={{ paddingTop: '0.85rem', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                                        <input type="text" className="input-field" value={edit.resetInput}
+                                          onChange={e => updateUserEdit(user.dn, { resetInput: e.target.value })}
+                                          placeholder="New password" style={{ padding: '0.65rem 1rem', fontSize: '0.9rem', fontFamily: 'monospace' }} />
+                                        <button type="button" onClick={() => updateUserEdit(user.dn, { resetInput: generatePassword() })}
+                                          style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'var(--text-muted)', padding: '0.65rem 0.85rem', borderRadius: '12px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                                          Regenerate
+                                        </button>
+                                        <button type="button" onClick={() => handleResetPassword(user)} disabled={resettingDn === user.dn || !edit.resetInput.trim()}
+                                          style={{ background: 'linear-gradient(135deg,#fbbf24,#f59e0b)', border: 'none', color: '#000', padding: '0.65rem 1rem', borderRadius: '12px', cursor: 'pointer', fontFamily: 'inherit', fontSize: '0.85rem', fontWeight: 700, whiteSpace: 'nowrap', opacity: resettingDn === user.dn ? 0.7 : 1 }}>
+                                          {resettingDn === user.dn ? <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1 }}><TerminalSquare size={16} /></motion.div> : 'Set Password'}
+                                        </button>
+                                      </div>
+                                    </motion.div>
+                                  )}
+                                  </AnimatePresence>
+
+                                  {/* Last reset password display */}
+                                  {edit.resetPassword && (
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.75rem', background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.2)', padding: '0.65rem 1rem', borderRadius: '10px' }}>
+                                      <KeyRound size={14} color="#fbbf24" style={{ flexShrink: 0 }} />
+                                      <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', flexShrink: 0 }}>New password:</span>
+                                      <code style={{ color: '#fbbf24', fontWeight: 600, fontSize: '0.9rem', flex: 1 }}>{edit.resetPassword}</code>
+                                      <button type="button" onClick={() => { navigator.clipboard.writeText(edit.resetPassword); updateUserEdit(user.dn, { resetCopied: true }); setTimeout(() => updateUserEdit(user.dn, { resetCopied: false }), 2000); }}
+                                        style={{ background: edit.resetCopied ? 'rgba(16,185,129,0.15)' : 'rgba(255,255,255,0.05)', border: edit.resetCopied ? '1px solid rgba(16,185,129,0.3)' : '1px solid rgba(255,255,255,0.1)', color: edit.resetCopied ? 'var(--success)' : 'var(--text-muted)', padding: '0.35rem 0.6rem', borderRadius: '6px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.75rem', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                                        {edit.resetCopied ? <><CheckCircle2 size={13} /> Copied!</> : <ClipboardCopy size={13} />}
+                                      </button>
+                                    </div>
+                                  )}
+
+                                  {/* Group picker */}
+                                  <AnimatePresence>
+                                  {edit.showPicker && (
+                                    <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
+                                      style={{ overflow: 'hidden', marginTop: '0.85rem', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+                                      <div style={{ paddingTop: '0.85rem' }}>
+                                        {adGroups.length > 0 && (
+                                          <input type="text" className="input-field" placeholder="Search groups…" value={edit.groupSearch}
+                                            onChange={e => updateUserEdit(user.dn, { groupSearch: e.target.value })}
+                                            style={{ marginBottom: '0.75rem', background: 'rgba(15,23,42,0.8)', padding: '0.65rem 1rem', fontSize: '0.9rem' }} />
+                                        )}
+                                        <div style={{ maxHeight: '160px', overflowY: 'auto', background: 'rgba(15,23,42,0.6)', borderRadius: '12px', border: '1px solid var(--panel-border)', padding: '0.6rem' }}>
+                                          {adGroups.length === 0 ? (
+                                            <div style={{ padding: '1rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.9rem' }}>No groups discovered.</div>
+                                          ) : adGroups.filter(g => g.toLowerCase().includes(edit.groupSearch.toLowerCase())).map(g => {
+                                            const wasMember = user.groups.includes(g);
+                                            const isSelected = (edit.selected ?? user.groups).includes(g);
+                                            const isToAdd = !wasMember && isSelected;
+                                            const isToRemove = wasMember && !isSelected;
+                                            return (
+                                              <label key={g} style={{ display: 'flex', alignItems: 'center', padding: '0.5rem 0.8rem', cursor: 'pointer', background: isToRemove ? 'rgba(239,68,68,0.08)' : isToAdd ? 'rgba(56,189,248,0.15)' : isSelected ? 'rgba(56,189,248,0.08)' : 'transparent', borderRadius: '8px', border: isToRemove ? '1px solid rgba(239,68,68,0.25)' : isToAdd ? '1px solid rgba(56,189,248,0.3)' : '1px solid transparent', marginBottom: '4px' }}>
+                                                <input type="checkbox" checked={isSelected}
+                                                  onChange={e => { const cur = edit.selected ?? [...user.groups]; updateUserEdit(user.dn, { selected: e.target.checked ? [...cur, g] : cur.filter(x => x !== g) }); }}
+                                                  style={{ marginRight: '0.75rem', accentColor: 'var(--primary)', width: '16px', height: '16px' }} />
+                                                <span style={{ fontSize: '0.9rem', color: isSelected || isToAdd ? '#fff' : 'var(--text-main)', fontWeight: isSelected ? 500 : 400 }}>{g}</span>
+                                                {isToAdd    && <span style={{ marginLeft: 'auto', fontSize: '0.7rem', color: 'var(--primary)', fontWeight: 700 }}>ADD</span>}
+                                                {isToRemove && <span style={{ marginLeft: 'auto', fontSize: '0.7rem', color: 'var(--error)',   fontWeight: 700 }}>REMOVE</span>}
+                                              </label>
+                                            );
+                                          })}
+                                        </div>
+                                        {(() => {
+                                          const sel = edit.selected ?? user.groups;
+                                          const toAdd    = sel.filter(g => !user.groups.includes(g));
+                                          const toRemove = user.groups.filter(g => !sel.includes(g));
+                                          if (!toAdd.length && !toRemove.length) return null;
+                                          const label = [toAdd.length ? `Add ${toAdd.length}` : null, toRemove.length ? `Remove ${toRemove.length}` : null].filter(Boolean).join(', ');
+                                          return (
+                                            <button type="button" onClick={() => handleSaveGroups(user)} disabled={isSaving}
+                                              style={{ marginTop: '0.75rem', width: '100%', background: isSaved ? 'rgba(16,185,129,0.15)' : 'linear-gradient(135deg,#38bdf8,#0ea5e9)', border: isSaved ? '1px solid rgba(16,185,129,0.3)' : 'none', color: isSaved ? 'var(--success)' : '#fff', padding: '0.75rem', borderRadius: '10px', cursor: isSaving ? 'not-allowed' : 'pointer', fontFamily: 'inherit', fontSize: '0.9rem', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem', opacity: isSaving ? 0.7 : 1 }}>
+                                              {isSaving ? <><motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1 }}><TerminalSquare size={16} /></motion.div> Saving…</>
+                                                : isSaved ? <><CheckCircle2 size={16} /> Saved!</>
+                                                : `Save changes — ${label}`}
+                                            </button>
+                                          );
+                                        })()}
+                                      </div>
+                                    </motion.div>
+                                  )}
+                                  </AnimatePresence>
+                                </div>
+                              </motion.div>
+                            )}
+                            </AnimatePresence>
+                          </motion.div>
+                        );
+                      })}
+                      </AnimatePresence>
                     </div>
 
-                    {allUsers.length > ALL_USERS_PAGE_SIZE && (
+                    {totalPages > 1 && (
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '1rem', paddingTop: '0.75rem', borderTop: '1px solid var(--panel-border)' }}>
                         <button type="button" onClick={() => setAllUsersPage(p => Math.max(0, p - 1))} disabled={allUsersPage === 0}
-                          style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', color: 'var(--text-main)', padding: '0.5rem 1rem', borderRadius: '8px', cursor: allUsersPage === 0 ? 'not-allowed' : 'pointer', fontSize: '0.85rem', fontWeight: 600, opacity: allUsersPage === 0 ? 0.35 : 1, transition: 'opacity 0.2s' }}>
+                          style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', color: 'var(--text-main)', padding: '0.5rem 1rem', borderRadius: '8px', cursor: allUsersPage === 0 ? 'not-allowed' : 'pointer', fontSize: '0.85rem', fontWeight: 600, opacity: allUsersPage === 0 ? 0.35 : 1 }}>
                           ← Previous
                         </button>
                         <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                          Page {allUsersPage + 1} of {Math.ceil(allUsers.length / ALL_USERS_PAGE_SIZE)} · {allUsers.length} total
+                          Page {allUsersPage + 1} of {totalPages} · {filteredUsers.length} users
                         </span>
-                        <button type="button" onClick={() => setAllUsersPage(p => Math.min(Math.ceil(allUsers.length / ALL_USERS_PAGE_SIZE) - 1, p + 1))} disabled={allUsersPage >= Math.ceil(allUsers.length / ALL_USERS_PAGE_SIZE) - 1}
-                          style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', color: 'var(--text-main)', padding: '0.5rem 1rem', borderRadius: '8px', cursor: allUsersPage >= Math.ceil(allUsers.length / ALL_USERS_PAGE_SIZE) - 1 ? 'not-allowed' : 'pointer', fontSize: '0.85rem', fontWeight: 600, opacity: allUsersPage >= Math.ceil(allUsers.length / ALL_USERS_PAGE_SIZE) - 1 ? 0.35 : 1, transition: 'opacity 0.2s' }}>
+                        <button type="button" onClick={() => setAllUsersPage(p => Math.min(totalPages - 1, p + 1))} disabled={allUsersPage >= totalPages - 1}
+                          style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', color: 'var(--text-main)', padding: '0.5rem 1rem', borderRadius: '8px', cursor: allUsersPage >= totalPages - 1 ? 'not-allowed' : 'pointer', fontSize: '0.85rem', fontWeight: 600, opacity: allUsersPage >= totalPages - 1 ? 0.35 : 1 }}>
                           Next →
                         </button>
                       </div>
@@ -1028,7 +956,9 @@ function App() {
                   </>
                 )}
               </div>
-            )}
+              );
+            })()}
+
 
             {/* ── Groups tab ── */}
             {activeTab === 'groups' && (
@@ -1105,16 +1035,24 @@ function App() {
                                   <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>No members found.</div>
                                 ) : (
                                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', maxHeight: '220px', overflowY: 'auto' }}>
-                                    {mData.members.map((m, i) => (
-                                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', padding: '0.4rem 0.6rem', background: m.disabled ? 'rgba(30,20,5,0.4)' : 'rgba(255,255,255,0.03)', borderRadius: '8px', border: m.disabled ? '1px solid rgba(251,191,36,0.1)' : '1px solid transparent' }}>
-                                        <User size={13} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
-                                        <div style={{ flex: 1, minWidth: 0 }}>
-                                          <span style={{ fontSize: '0.88rem', fontWeight: 500, color: 'var(--text-main)' }}>{m.displayName}</span>
-                                          <span style={{ color: 'var(--text-muted)', fontSize: '0.78rem', marginLeft: '0.5rem' }}>{m.username}</span>
+                                    {mData.members.map(m => {
+                                      const rKey = `${group.dn}|${m.dn}`;
+                                      const isRemoving = removingMemberKey === rKey;
+                                      return (
+                                        <div key={m.dn || m.username} style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', padding: '0.4rem 0.6rem', background: m.disabled ? 'rgba(30,20,5,0.45)' : 'rgba(255,255,255,0.03)', borderRadius: '8px', border: m.disabled ? '1px solid rgba(251,191,36,0.2)' : '1px solid transparent', opacity: m.disabled ? 0.88 : 1 }}>
+                                          <User size={13} style={{ flexShrink: 0, color: m.disabled ? '#fbbf24' : 'var(--text-muted)' }} />
+                                          <div style={{ flex: 1, minWidth: 0 }}>
+                                            <span style={{ fontSize: '0.88rem', fontWeight: 500, color: 'var(--text-main)' }}>{m.displayName}</span>
+                                            <span style={{ color: 'var(--primary)', fontSize: '0.78rem', marginLeft: '0.5rem' }}>{m.username}</span>
+                                            {m.disabled && <span style={{ background: 'rgba(251,191,36,0.15)', border: '1px solid rgba(251,191,36,0.3)', color: '#fbbf24', fontSize: '0.65rem', padding: '0.05rem 0.35rem', borderRadius: '3px', fontWeight: 700, marginLeft: '0.5rem' }}>DISABLED</span>}
+                                          </div>
+                                          <button type="button" disabled={isRemoving} onClick={() => handleRemoveGroupMember(group.dn, group.cn, m.dn)}
+                                            style={{ flexShrink: 0, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', color: 'var(--error)', padding: '0.25rem 0.55rem', borderRadius: '6px', cursor: isRemoving ? 'not-allowed' : 'pointer', fontSize: '0.72rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.3rem', opacity: isRemoving ? 0.6 : 1 }}>
+                                            {isRemoving ? <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1 }}><TerminalSquare size={11} /></motion.div> : <><X size={11} /> Remove</>}
+                                          </button>
                                         </div>
-                                        {m.disabled && <span style={{ background: 'rgba(251,191,36,0.15)', border: '1px solid rgba(251,191,36,0.3)', color: '#fbbf24', fontSize: '0.65rem', padding: '0.05rem 0.35rem', borderRadius: '3px', fontWeight: 700, flexShrink: 0 }}>DISABLED</span>}
-                                      </div>
-                                    ))}
+                                      );
+                                    })}
                                   </div>
                                 )}
                               </div>

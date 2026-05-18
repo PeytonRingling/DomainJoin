@@ -415,11 +415,13 @@ app.post('/api/users/all', async (req, res) => {
     const users = searchEntries.map(e => {
       const uac = parseInt(s(e.userAccountControl)) || 0;
       const displayName = s(e.displayName) || `${s(e.givenName)} ${s(e.sn)}`.trim() || s(e.cn);
+      const memberOf = e.memberOf ? (Array.isArray(e.memberOf) ? e.memberOf : [e.memberOf]) : [];
       return {
         dn: e.dn,
         displayName,
         username: s(e.sAMAccountName),
         disabled: !!(uac & 2),
+        groups: memberOf.map(cnFromDn).sort(),
       };
     }).sort((a, b) => a.displayName.localeCompare(b.displayName));
     res.json({ success: true, users, total: users.length });
@@ -485,14 +487,16 @@ app.post('/api/groups/members', async (req, res) => {
       attributes: ['cn', 'sAMAccountName', 'displayName', 'userAccountControl'],
       paged: { pageSize: 200 },
     });
+    const s2 = (v) => String(Array.isArray(v) ? v[0] : (v ?? ''));
     const members = searchEntries.map(e => {
-      const uac = parseInt(Array.isArray(e.userAccountControl) ? e.userAccountControl[0] : e.userAccountControl) || 0;
+      const uac = parseInt(s2(e.userAccountControl)) || 0;
       return {
-        displayName: (Array.isArray(e.displayName) ? e.displayName[0] : e.displayName) || (Array.isArray(e.cn) ? e.cn[0] : e.cn),
-        username: Array.isArray(e.sAMAccountName) ? e.sAMAccountName[0] : e.sAMAccountName,
+        dn: e.dn,
+        displayName: s2(e.displayName) || s2(e.cn),
+        username: s2(e.sAMAccountName),
         disabled: !!(uac & 2),
       };
-    }).sort((a, b) => (a.displayName || '').localeCompare(b.displayName || ''));
+    }).sort((a, b) => a.displayName.localeCompare(b.displayName));
     res.json({ success: true, members });
   } catch (err) {
     res.status(500).json({ error: err.message || 'Failed to fetch group members' });
