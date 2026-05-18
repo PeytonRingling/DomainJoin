@@ -1060,8 +1060,8 @@ function App() {
                                   const isSaved  = selMember ? savedDn  === selMember.dn : false;
                                   return (
                                     <>
-                                      {/* Compact scrollable member list — headers only */}
-                                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', maxHeight: '200px', overflowY: 'auto' }}>
+                                      {/* Member list — no inner scroll, outer groups container handles it */}
+                                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
                                         {mData.members.map(m => {
                                           const rKey = `${group.dn}|${m.dn}`;
                                           const isSelected = expandedGroupMemberKey === rKey;
