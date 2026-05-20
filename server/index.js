@@ -16,11 +16,11 @@ app.use(express.static(path.join(__dirname, '../dist')));
 // Derive base DN from UPN suffix: "corp.example.com" -> "DC=corp,DC=example,DC=com"
 const BASE_DN = UPN_SUFFIX.split('.').map(p => `DC=${p}`).join(',');
 
-const createClient = (dcServer) =>
+const createClient = (dcServer, timeoutMs = 30000) =>
   new Client({
     url: `ldaps://${dcServer}:636`,
     tlsOptions: { rejectUnauthorized: false },
-    timeout: 15000,
+    timeout: timeoutMs,
     connectTimeout: 15000,
   });
 
@@ -403,14 +403,15 @@ app.post('/api/users/all', async (req, res) => {
   // ldapts can return multi-valued attributes as arrays; always coerce to string
   const s = (v) => String(Array.isArray(v) ? v[0] : (v ?? ''));
 
-  const client = createClient(dcServer);
+  const client = createClient(dcServer, 60000);
   try {
     await client.bind(normalizeUsername(username), password);
     const { searchEntries } = await client.search(BASE_DN, {
       filter: '(&(objectClass=user)(objectCategory=person))',
       scope: 'sub',
       attributes: ['dn', 'cn', 'sAMAccountName', 'displayName', 'givenName', 'sn', 'userAccountControl', 'memberOf'],
-      paged: { pageSize: 200 },
+      sizeLimit: 0,
+      paged: { pageSize: 500 },
     });
     const users = searchEntries.map(e => {
       const uac = parseInt(s(e.userAccountControl)) || 0;
