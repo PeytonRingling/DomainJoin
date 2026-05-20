@@ -400,22 +400,28 @@ app.post('/api/users/all', async (req, res) => {
   if (!dcServer || !username || !password)
     return res.status(400).json({ error: 'Missing credentials' });
 
-  // ldapts can return multi-valued attributes as arrays; always coerce to string
-  const s = (v) => String(Array.isArray(v) ? v[0] : (v ?? ''));
+  // Safe string coercion: empty arrays return '' instead of 'undefined'
+  const s = (v) => {
+    if (Array.isArray(v)) return v.length > 0 ? String(v[0]) : '';
+    return String(v ?? '');
+  };
 
   const client = createClient(dcServer, 60000);
   try {
     await client.bind(normalizeUsername(username), password);
+    // sAMAccountType=805306368 (0x30000000) is the definitive AD filter for
+    // normal user accounts — more reliable than objectCategory=person which
+    // can miss accounts created by some tools.
     const { searchEntries } = await client.search(BASE_DN, {
-      filter: '(&(objectClass=user)(objectCategory=person))',
+      filter: '(sAMAccountType=805306368)',
       scope: 'sub',
       attributes: ['dn', 'cn', 'sAMAccountName', 'displayName', 'givenName', 'sn', 'userAccountControl', 'memberOf'],
-      sizeLimit: 0,
       paged: { pageSize: 500 },
     });
+    console.log(`[users/all] LDAP returned ${searchEntries.length} raw entries from ${BASE_DN}`);
     const users = searchEntries.map(e => {
       const uac = parseInt(s(e.userAccountControl)) || 0;
-      const displayName = s(e.displayName) || `${s(e.givenName)} ${s(e.sn)}`.trim() || s(e.cn);
+      const displayName = s(e.displayName) || `${s(e.givenName)} ${s(e.sn)}`.trim() || s(e.cn) || s(e.sAMAccountName);
       const memberOf = e.memberOf ? (Array.isArray(e.memberOf) ? e.memberOf : [e.memberOf]) : [];
       return {
         dn: e.dn,
@@ -424,7 +430,8 @@ app.post('/api/users/all', async (req, res) => {
         disabled: !!(uac & 2),
         groups: memberOf.map(cnFromDn).sort(),
       };
-    }).sort((a, b) => a.displayName.localeCompare(b.displayName));
+    }).filter(u => u.username).sort((a, b) => a.displayName.localeCompare(b.displayName));
+    console.log(`[users/all] Returning ${users.length} users after mapping`);
     res.json({ success: true, users, total: users.length });
   } catch (err) {
     res.status(500).json({ error: err.message || 'Failed to fetch users' });
@@ -438,7 +445,7 @@ app.post('/api/groups/list', async (req, res) => {
   if (!dcServer || !username || !password)
     return res.status(400).json({ error: 'Missing credentials' });
 
-  const s = (v) => String(Array.isArray(v) ? v[0] : (v ?? ''));
+  const s = (v) => { if (Array.isArray(v)) return v.length > 0 ? String(v[0]) : ''; return String(v ?? ''); };
 
   const client = createClient(dcServer);
   try {
