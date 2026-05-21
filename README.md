@@ -1,8 +1,18 @@
 # DomainJoin — Active Directory User Provisioner
 
-A web-based tool for bulk-provisioning Active Directory users. Authenticate with a domain admin account, fill out a user queue, assign AD groups, and provision multiple accounts in one shot. Created credentials are shown in a transaction log at the end of the session.
+A web-based tool for bulk-provisioning Active Directory users. Authenticate with a domain admin account, build a user queue, assign AD group memberships, and provision multiple accounts in one shot. Created credentials are displayed in a transaction log at the end of the session.
 
 Runs as a **Windows container** (required for the AD PowerShell module) served on port `3001`.
+
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Frontend | React + Vite |
+| Backend | Node.js + Express |
+| Desktop | Electron |
+| Runtime | Windows Container (Docker) |
+| AD Integration | PowerShell (`New-ADUser`, `Add-ADGroupMember`) |
 
 ---
 
@@ -50,7 +60,7 @@ The app will be available at `http://<server-ip>:3001`.
 3. **Provision** — Click the provision button. The backend creates each user via `New-ADUser`, handles username conflicts automatically (appends a counter), and adds group memberships.
 4. **Transaction log** — Provisioned users appear below the form with their generated username and temporary password.
 
-Usernames are generated as `firstinitial+lastname` (e.g. `jsmith`). Passwords are auto-generated in the format `Word!1234`.
+Usernames are generated as `firstinitial+lastname` (e.g. `jsmith`). Passwords are auto-generated and shown only in the transaction log at the end of the session.
 
 ---
 
