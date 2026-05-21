@@ -11,11 +11,11 @@ function App() {
   const [activeTab, setActiveTab] = useState('provision');
 
   // Provision state
-  const [loginForm, setLoginForm] = useState({ dcServer: import.meta.env.VITE_DEFAULT_DC || '10.0.0.10', username: '', password: '' });
+  const [loginForm, setLoginForm] = useState({ dcServer: import.meta.env.VITE_DEFAULT_DC || '', username: '', password: '' });
   const [usersForm, setUsersForm] = useState([{ id: Date.now(), firstName: '', lastName: '', groups: [], showGroups: false, groupSearch: '' }]);
   const [adGroups, setAdGroups] = useState([]);
   const [fetchingGroups, setFetchingGroups] = useState(false);
-  const [selectedOu, setSelectedOu] = useState(import.meta.env.VITE_DEFAULT_OU || 'OU=Users,OU=Corp,DC=corp,DC=example,DC=com');
+  const [selectedOu, setSelectedOu] = useState(import.meta.env.VITE_DEFAULT_OU || '');
   const [createdList, setCreatedList] = useState([]);
   const [copiedIndex, setCopiedIndex] = useState(null);
 
